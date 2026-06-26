@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import mimetypes
 import re
 from datetime import datetime, timezone
@@ -36,6 +37,23 @@ def read_existing_resources(asset_dir: Path) -> set[str]:
     return resources
 
 
+def load_asset_contexts(raw_assets: Path) -> dict[str, dict]:
+    context_path = raw_assets / "asset_context.json"
+    if not context_path.exists():
+        return {}
+    try:
+        data = json.loads(context_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(data, list):
+        return {}
+    contexts: dict[str, dict] = {}
+    for item in data:
+        if isinstance(item, dict) and item.get("copied_asset"):
+            contexts[str(item["copied_asset"])] = item
+    return contexts
+
+
 def image_size(path: Path) -> Optional[str]:
     try:
         from PIL import Image  # type: ignore
@@ -46,13 +64,83 @@ def image_size(path: Path) -> Optional[str]:
         return None
 
 
-def make_page(bundle: Path, asset: Path, source: str | None, ts: str) -> str:
+def format_list(values: list[str], empty: str = "Not captured.") -> str:
+    cleaned = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+    if not cleaned:
+        return empty
+    return "\n".join(f"- {value}" for value in cleaned)
+
+
+def make_source_context(context: dict | None) -> str:
+    if not context:
+        return """# Source Context
+
+Context unavailable. Do not infer the image meaning from the whole source alone; use OCR/image inspection or manual review before final interpretation.
+"""
+
+    location = context.get("source_location") if isinstance(context.get("source_location"), dict) else {}
+    source_type = context.get("source_type", "unknown")
+    confidence = context.get("binding_confidence", "unknown")
+    source_file = context.get("source_file", "unknown")
+    internal_path = context.get("internal_path", "unknown")
+    rule = location.get("primary_context_rule", "Use the captured source location as the binding context.")
+
+    lines = [
+        "# Source Context",
+        "",
+        f"- Source file: `{source_file}`",
+        f"- Source type: `{source_type}`",
+        f"- Internal asset path: `{internal_path}`",
+        f"- Binding confidence: `{confidence}`",
+        f"- Binding rule: {rule}",
+        "",
+    ]
+
+    if source_type == "docx":
+        lines.extend([
+            f"- Nearest heading: {location.get('nearest_heading') or 'Not captured.'}",
+            f"- Paragraph index: {location.get('paragraph_index') or 'Not captured.'}",
+            f"- Caption: {location.get('caption') or location.get('caption_after') or 'Not captured.'}",
+            "",
+            "## Preceding Text",
+            "",
+            format_list(location.get("paragraphs_before", [])),
+            "",
+            "## Image Paragraph Text",
+            "",
+            location.get("image_paragraph_text") or "Not captured.",
+            "",
+        ])
+    elif source_type == "pptx":
+        lines.extend([
+            f"- Slide: {location.get('slide') or 'Not captured.'}",
+            f"- Slide title: {location.get('slide_title') or 'Not captured.'}",
+            "",
+            "## Slide Text",
+            "",
+            format_list(location.get("slide_text", [])),
+            "",
+        ])
+    else:
+        lines.extend([
+            "## Location Notes",
+            "",
+            location.get("primary_context_rule") or "Precise location was not captured.",
+            "",
+        ])
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def make_page(bundle: Path, asset: Path, source: str | None, ts: str, context: dict | None) -> str:
     resource = asset.relative_to(bundle).as_posix()
     mime_type = mimetypes.guess_type(asset.name)[0] or "application/octet-stream"
     title = asset.stem.replace("-", " ").replace("_", " ").strip().title()
     size = image_size(asset)
     sources = f"\n  - {source}" if source else " []"
     size_line = f"\n- Size: {size}" if size else ""
+    context_section = make_source_context(context)
+    related_source = source or "sources/source-todo.md"
 
     return f"""---
 type: Image Asset
@@ -60,6 +148,7 @@ title: {title}
 description: Metadata page for `{asset.name}`. Replace this with a specific description after visual review.
 resource: {resource}
 mime_type: {mime_type}
+source_context_available: {str(bool(context)).lower()}
 tags: []
 timestamp: {ts}
 sources:{sources}
@@ -74,6 +163,8 @@ TODO: Describe what this asset shows and why it matters.
 - Resource: `{resource}`
 - MIME type: `{mime_type}`{size_line}
 
+{context_section}
+
 # Visible Text
 
 TODO: Use the company's OCR/image skill if the asset contains text.
@@ -84,7 +175,7 @@ TODO: Use the company's OCR/image skill or manual review to describe diagrams, s
 
 # Related
 
-- Extracted from: [Source Page TODO](../sources/source-todo.md)
+- Extracted from: [{related_source}](../{related_source})
 - Illustrates: [Concept TODO](../concepts/concept-todo.md)
 
 # Citations
@@ -108,6 +199,7 @@ def main() -> None:
         raise SystemExit(f"Missing raw assets directory: {raw_assets}")
 
     existing = set() if args.overwrite else read_existing_resources(asset_pages)
+    contexts = load_asset_contexts(raw_assets)
     ts = timestamp()
     written = 0
     skipped = 0
@@ -128,7 +220,7 @@ def main() -> None:
                     page = candidate
                     break
                 counter += 1
-        page.write_text(make_page(bundle, asset, args.source_page, ts), encoding="utf-8")
+        page.write_text(make_page(bundle, asset, args.source_page, ts, contexts.get(asset.name)), encoding="utf-8")
         written += 1
 
     print(f"Wrote {written} OKF asset page(s), skipped {skipped} existing asset(s).")

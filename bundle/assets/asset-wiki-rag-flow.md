@@ -4,6 +4,7 @@ title: Asset - Wiki RAG Flow Diagram
 description: Diagram showing the flow from raw sources to an OKF-compatible Wiki bundle, MCP tools, and agent answers.
 resource: raw/assets/wiki-rag-flow.svg
 mime_type: image/svg+xml
+source_context_available: false
 tags:
   - diagram
   - rag
@@ -17,6 +18,13 @@ sources:
 # Description
 
 This diagram illustrates how raw materials become an OKF-compatible LLM Wiki Bundle and are then queried through MCP by an agent.
+
+# Source Context
+
+- Source file: manually authored sample asset
+- Source type: svg
+- Binding confidence: manual
+- Binding rule: This sample diagram was created directly for the bundle and is not extracted from an Office source.
 
 # Visible Text
 

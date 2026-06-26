@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 import shutil
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 from zipfile import ZipFile
@@ -14,7 +16,10 @@ from xml.etree import ElementTree as ET
 NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
+
+REL_NS = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
 
 MEDIA_PREFIXES = {
     ".docx": "word/media/",
@@ -35,13 +40,69 @@ def clean(lines: list[str]) -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
-def copy_office_media(zf: ZipFile, source_path: Path, media_prefix: str, asset_dir: Optional[Path]) -> list[str]:
+def normalize_office_target(base_dir: str, target: str) -> str:
+    target = target.replace("\\", "/")
+    if target.startswith("/"):
+        target = target.lstrip("/")
+    else:
+        target = f"{base_dir}/{target}"
+    parts: list[str] = []
+    for part in target.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts)
+
+
+def read_relationships(zf: ZipFile, rels_path: str, base_dir: str) -> dict[str, str]:
+    if rels_path not in zf.namelist():
+        return {}
+    tree = ET.fromstring(zf.read(rels_path))
+    rels: dict[str, str] = {}
+    for rel in tree.findall("rel:Relationship", REL_NS):
+        rid = rel.attrib.get("Id")
+        target = rel.attrib.get("Target")
+        if rid and target:
+            rels[rid] = normalize_office_target(base_dir, target)
+    return rels
+
+
+def blip_embeds(element: ET.Element) -> list[str]:
+    embeds: list[str] = []
+    for blip in element.findall(".//a:blip", NS):
+        rid = blip.attrib.get(f"{{{NS['r']}}}embed")
+        if rid:
+            embeds.append(rid)
+    return embeds
+
+
+def paragraph_text(element: ET.Element) -> str:
+    return "".join(t.text or "" for t in element.findall(".//w:t", NS)).strip()
+
+
+def paragraph_style(element: ET.Element) -> str:
+    style = element.find(".//w:pStyle", NS)
+    if style is None:
+        return ""
+    return style.attrib.get(f"{{{NS['w']}}}val", "")
+
+
+def likely_caption(text: str) -> bool:
+    return bool(re.match(r"^\s*(图|圖|figure|fig\.|表|table)\s*[\d一二三四五六七八九十:：.-]*", text, re.I))
+
+
+def copy_office_media(zf: ZipFile, source_path: Path, media_prefix: str, asset_dir: Optional[Path]) -> tuple[list[str], dict[str, str]]:
     media_names = sorted(name for name in zf.namelist() if name.startswith(media_prefix) and not name.endswith("/"))
     if not media_names:
-        return []
+        return [], {}
 
     lines = ["", "## Embedded Media Assets"]
     lines.append(f"Found {len(media_names)} embedded media file(s) under `{media_prefix}`.")
+    copied: dict[str, str] = {}
     if asset_dir:
         asset_dir.mkdir(parents=True, exist_ok=True)
     else:
@@ -56,12 +117,123 @@ def copy_office_media(zf: ZipFile, source_path: Path, media_prefix: str, asset_d
             with zf.open(name) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
             copied_path = target
+            copied[name] = target.name
 
         if copied_path:
             lines.append(f"- `{name}` -> `{copied_path}`")
         else:
             lines.append(f"- `{name}`")
-    return lines
+    return lines, copied
+
+
+def write_asset_context(asset_dir: Optional[Path], contexts: list[dict]) -> None:
+    if not asset_dir or not contexts:
+        return
+    context_path = asset_dir / "asset_context.json"
+    existing: list[dict] = []
+    if context_path.exists():
+        try:
+            existing = json.loads(context_path.read_text(encoding="utf-8"))
+            if not isinstance(existing, list):
+                existing = []
+        except Exception:
+            existing = []
+    by_asset = {item.get("copied_asset"): item for item in existing if isinstance(item, dict)}
+    for item in contexts:
+        by_asset[item["copied_asset"]] = item
+    context_path.write_text(json.dumps(list(by_asset.values()), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def docx_asset_contexts(zf: ZipFile, source_path: Path, copied: dict[str, str]) -> list[dict]:
+    if not copied:
+        return []
+    rels = read_relationships(zf, "word/_rels/document.xml.rels", "word")
+    tree = ET.fromstring(zf.read("word/document.xml"))
+    paragraphs = []
+    current_heading = ""
+    for index, para in enumerate(tree.findall(".//w:p", NS), 1):
+        text = paragraph_text(para)
+        style = paragraph_style(para)
+        if text and (style.lower().startswith("heading") or re.match(r"^\s*#{1,6}\s+", text)):
+            current_heading = text
+        paragraphs.append({
+            "index": index,
+            "text": text,
+            "style": style,
+            "heading": current_heading,
+            "embeds": blip_embeds(para),
+        })
+
+    contexts: list[dict] = []
+    for pos, para in enumerate(paragraphs):
+        for rid in para["embeds"]:
+            internal = rels.get(rid)
+            copied_asset = copied.get(internal or "")
+            if not internal or not copied_asset:
+                continue
+            before = [p["text"] for p in paragraphs[max(0, pos - 3):pos] if p["text"]]
+            immediate_before = before[-1] if before else ""
+            after_text = paragraphs[pos + 1]["text"] if pos + 1 < len(paragraphs) else ""
+            caption = immediate_before if likely_caption(immediate_before) else ""
+            if not caption and likely_caption(para["text"]):
+                caption = para["text"]
+            contexts.append({
+                "copied_asset": copied_asset,
+                "source_file": source_path.name,
+                "source_type": "docx",
+                "internal_path": internal,
+                "binding_confidence": "high" if before or caption else "medium",
+                "source_location": {
+                    "paragraph_index": para["index"],
+                    "nearest_heading": para["heading"],
+                    "caption": caption,
+                    "primary_context_rule": "Image is bound to the nearest preceding heading, caption, and previous paragraphs. Following text is used only when it looks like a caption.",
+                    "paragraphs_before": before,
+                    "image_paragraph_text": para["text"],
+                    "caption_after": after_text if likely_caption(after_text) else "",
+                },
+            })
+    return contexts
+
+
+def pptx_asset_contexts(zf: ZipFile, source_path: Path, copied: dict[str, str]) -> list[dict]:
+    if not copied:
+        return []
+    contexts: list[dict] = []
+    slides = sorted(
+        [name for name in zf.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", name)],
+        key=lambda name: int(re.search(r"slide(\d+)\.xml", name).group(1)),
+    )
+    for slide_path in slides:
+        slide_num = int(re.search(r"slide(\d+)\.xml", slide_path).group(1))
+        rels_path = f"ppt/slides/_rels/slide{slide_num}.xml.rels"
+        rels = read_relationships(zf, rels_path, "ppt/slides")
+        tree = ET.fromstring(zf.read(slide_path))
+        slide_text = []
+        for para in tree.findall(".//a:p", NS):
+            text = "".join(t.text or "" for t in para.findall(".//a:t", NS)).strip()
+            if text:
+                slide_text.append(text)
+        title = slide_text[0] if slide_text else ""
+        for rid in blip_embeds(tree):
+            internal = rels.get(rid)
+            copied_asset = copied.get(internal or "")
+            if not internal or not copied_asset:
+                continue
+            contexts.append({
+                "copied_asset": copied_asset,
+                "source_file": source_path.name,
+                "source_type": "pptx",
+                "internal_path": internal,
+                "binding_confidence": "high" if slide_text else "medium",
+                "source_location": {
+                    "slide": slide_num,
+                    "slide_title": title,
+                    "slide_text": slide_text,
+                    "primary_context_rule": "Image is bound to text boxes on the same slide.",
+                },
+            })
+    return contexts
 
 
 def extract_docx(path: Path, asset_dir: Optional[Path] = None) -> str:
@@ -72,7 +244,9 @@ def extract_docx(path: Path, asset_dir: Optional[Path] = None) -> str:
             text = "".join(t.text or "" for t in para.findall(".//w:t", NS)).strip()
             if text:
                 lines.append(text)
-        lines.extend(copy_office_media(zf, path, MEDIA_PREFIXES[".docx"], asset_dir))
+        media_lines, copied = copy_office_media(zf, path, MEDIA_PREFIXES[".docx"], asset_dir)
+        lines.extend(media_lines)
+        write_asset_context(asset_dir, docx_asset_contexts(zf, path, copied))
     return clean(lines)
 
 
@@ -93,7 +267,9 @@ def extract_pptx(path: Path, asset_dir: Optional[Path] = None) -> str:
             if slide_lines:
                 lines.append(f"## Slide {idx}")
                 lines.extend(slide_lines)
-        lines.extend(copy_office_media(zf, path, MEDIA_PREFIXES[".pptx"], asset_dir))
+        media_lines, copied = copy_office_media(zf, path, MEDIA_PREFIXES[".pptx"], asset_dir)
+        lines.extend(media_lines)
+        write_asset_context(asset_dir, pptx_asset_contexts(zf, path, copied))
     return clean(lines)
 
 
@@ -130,7 +306,23 @@ def extract_workbook(path: Path, asset_dir: Optional[Path] = None) -> str:
 
     lines = []
     with ZipFile(path) as zf:
-        lines.extend(copy_office_media(zf, path, MEDIA_PREFIXES[path.suffix.lower()], asset_dir))
+        media_lines, copied = copy_office_media(zf, path, MEDIA_PREFIXES[path.suffix.lower()], asset_dir)
+        lines.extend(media_lines)
+        contexts = [
+            {
+                "copied_asset": copied_asset,
+                "source_file": path.name,
+                "source_type": path.suffix.lower().lstrip("."),
+                "internal_path": internal,
+                "binding_confidence": "low",
+                "source_location": {
+                    "workbook": path.name,
+                    "primary_context_rule": "Workbook media was extracted from xl/media. Sheet/cell anchoring is not yet available, so inspect the workbook or image before final interpretation.",
+                },
+            }
+            for internal, copied_asset in copied.items()
+        ]
+        write_asset_context(asset_dir, contexts)
 
     workbook = load_workbook(path, data_only=False, read_only=True)
     lines.extend([

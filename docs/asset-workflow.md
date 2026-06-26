@@ -39,9 +39,15 @@ python skills/okf-wiki-builder/scripts/extract_source_text.py source.docx extrac
 python skills/okf-wiki-builder/scripts/create_asset_pages.py bundle --source-page sources/source-example.md
 ```
 
-5. Review the generated asset page and replace TODO fields with meaningful descriptions.
-6. If the company Agent has an OCR/image skill, use it to fill `# Visible Text` and `# Visual Notes`.
-7. Link the asset page to related concepts and source summaries.
+5. Review the generated `# Source Context` section before writing image descriptions.
+6. Replace TODO fields with descriptions grounded in source context.
+7. If the company Agent has an OCR/image skill, use it to fill `# Visible Text` and `# Visual Notes`.
+8. Link the asset page to related concepts and source summaries.
+9. Run validation before reporting completion:
+
+```bash
+python skills/okf-wiki-builder/scripts/validate_bundle.py bundle
+```
 
 ## Office Embedded Media
 
@@ -53,9 +59,40 @@ The extractor preserves common embedded media folders:
 
 This means diagrams and screenshots inside Office files are not lost during wiki creation.
 
+## Source Context Binding
+
+The extractor writes `raw/assets/asset_context.json` for Office-embedded media.
+
+The asset page generator reads that file and adds `# Source Context` to asset pages. This section records the nearest source location, such as:
+
+- DOCX nearest heading, caption, image paragraph, and previous paragraphs
+- PPTX slide number, slide title, and slide text
+- XLSX workbook-level extraction note when exact sheet/cell anchoring is unavailable
+
+Company document authors must place images after the relevant body text when they want automatic source-context binding:
+
+```text
+Relevant explanation
+Figure title or caption
+Image
+```
+
+The ingest rule prioritizes preceding text and captions. Following text is used only when it clearly looks like a caption, so an unrelated next section is less likely to be bound to the image.
+
+## Completion Gate
+
+An ingest pass is not complete when:
+
+- a raw image/media file has no matching `assets/asset-*.md` page
+- embedded Office media exists but `raw/assets/asset_context.json` is missing
+- an embedded asset is not listed in `asset_context.json`
+- an asset page still contains unresolved TODO markers
+
+Use `--allow-drafts` only when the user explicitly asks for draft output.
+
 ## Reader Flow
 
-When a user asks a question that may involve images, the Agent should:
+When a user asks a question that mentions or implies images, the Agent must:
 
 1. call `search_bundle` for normal concept/source pages;
 2. call `search_assets` for diagrams, screenshots, charts, UI images, or figures;
@@ -65,7 +102,7 @@ When a user asks a question that may involve images, the Agent should:
 
 ## Why MCP Does Not OCR
 
-The MCP server should stay lightweight and read-only.
+The MCP server stays lightweight and read-only.
 
 It returns file paths and metadata. OCR is delegated to the company Agent because that capability already exists there and may be governed by company security controls.
 

@@ -10,6 +10,7 @@ const {
   getRelatedLinks,
   getBacklinks,
   getPageAssets,
+  readAssetMetadata,
   loadGraph,
 } = require('./okf');
 
@@ -62,7 +63,7 @@ function callTool(name, args) {
   if (name === 'get_backlinks') return getBacklinks(root, String(args.path || ''));
   if (name === 'get_page_assets') return getPageAssets(root, String(args.path || ''));
   if (name === 'search_assets') return searchAssets(args);
-  if (name === 'read_asset_metadata') return readConcept(root, String(args.asset_id_or_path || args.path || ''));
+  if (name === 'read_asset_metadata') return readAssetMetadata(root, String(args.asset_id_or_path || args.path || ''));
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -104,7 +105,7 @@ function toolDefinitions() {
     tool('get_backlinks', 'Find pages that link to a target page.', {path: {type: 'string'}}, ['path']),
     tool('get_page_assets', 'Return image/media references from a concept page.', {path: {type: 'string'}}, ['path']),
     tool('search_assets', 'Search image/media asset metadata pages.', {query: {type: 'string'}, top_k: {type: 'number'}}, ['query']),
-    tool('read_asset_metadata', 'Read an asset metadata page. OCR should be handled by the company OCR/image skill.', {asset_id_or_path: {type: 'string'}}, ['asset_id_or_path']),
+    tool('read_asset_metadata', 'Read an asset metadata page, including original asset path, TODO status, and source-context status. OCR should be handled by the company OCR/image skill.', {asset_id_or_path: {type: 'string'}}, ['asset_id_or_path']),
   ];
 }
 

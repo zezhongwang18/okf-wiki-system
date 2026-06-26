@@ -9,7 +9,7 @@ Use this skill when the user asks about knowledge that may be contained in an OK
 
 ## Required MCP Server
 
-Prefer an MCP server exposing OKF bundle tools.
+Use the OKF MCP server when these tools are available. If the server is unavailable, report that the bundle cannot be queried instead of answering from memory.
 
 Expected tools:
 
@@ -51,9 +51,10 @@ Search the bundle first when the user asks about:
 6. Deduplicate and rank results.
 7. Read complete pages with `read_concept`.
 8. Use `get_related_links` and `get_backlinks` to traverse the bundle graph.
-9. Use `get_page_assets` and `search_assets` when diagrams, screenshots, charts, or figures may help.
-10. If image OCR or visual understanding is needed, call the company's OCR/image skill on the asset path returned by MCP.
-11. Answer with citations to concept, source, and asset pages.
+9. If the question mentions or implies diagrams, screenshots, charts, figures, UI states, visual evidence, or attached images, call `get_page_assets` and `search_assets`.
+10. If returned asset metadata has empty TODO fields, or if image OCR/visual understanding is needed to answer, call the company's OCR/image skill on the asset path returned by MCP.
+11. If `read_asset_metadata` returns `completion_status: draft` or `has_todo: true`, treat the asset description as unfinished. Use the original image path and OCR/image skill before citing it as evidence.
+12. Answer with citations to concept, source, and asset pages.
 
 ## Rules
 
@@ -61,9 +62,10 @@ Search the bundle first when the user asks about:
 - Do not answer from isolated chunks alone.
 - Do not require `ripgrep` / `rg`.
 - Do not require local OCR.
-- Prefer complete pages over snippets.
+- Read complete pages before finalizing an answer; snippets are only for candidate selection.
 - Cite `# Citations` sources when evidence matters.
 - If evidence is missing, say the bundle does not contain enough evidence.
+- Do not present draft asset metadata as finalized evidence.
 
 ## Answer Format
 

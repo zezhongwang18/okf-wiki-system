@@ -179,6 +179,33 @@ function readConcept(root, relPath) {
   };
 }
 
+function firstFrontmatterValue(frontmatter, key) {
+  const value = frontmatter[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function readAssetMetadata(root, relPath) {
+  const concept = readConcept(root, relPath);
+  const resource = firstFrontmatterValue(concept.frontmatter, 'resource') || '';
+  const hasTodo = /\bTODO\b|Source Page TODO|Concept TODO|Context unavailable/i.test(concept.content);
+  const sourceContextAvailable = String(firstFrontmatterValue(concept.frontmatter, 'source_context_available') || '').toLowerCase() === 'true'
+    || /^# Source Context[\s\S]*?Binding confidence:/m.test(concept.content);
+  let absoluteAssetPath = '';
+  if (resource && !/^[a-z]+:\/\//i.test(resource)) {
+    absoluteAssetPath = safeResolve(root, resource);
+  } else {
+    absoluteAssetPath = resource;
+  }
+  return {
+    ...concept,
+    resource,
+    absolute_asset_path: absoluteAssetPath,
+    has_todo: hasTodo,
+    source_context_available: sourceContextAvailable,
+    completion_status: hasTodo ? 'draft' : 'ready',
+  };
+}
+
 function getRelatedLinks(root, relPath) {
   const concept = readConcept(root, relPath);
   return {
@@ -250,6 +277,7 @@ module.exports = {
   loadConcepts,
   searchBundle,
   readConcept,
+  readAssetMetadata,
   getRelatedLinks,
   getBacklinks,
   getPageAssets,

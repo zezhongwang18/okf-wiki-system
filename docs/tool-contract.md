@@ -31,7 +31,7 @@ For image-heavy questions, use this extension:
 search_bundle
 search_assets
 read_asset_metadata
-call company OCR/image skill if needed
+call company OCR/image skill when asset metadata is draft or visual evidence is needed
 answer with concept/source/asset citations
 ```
 
@@ -39,7 +39,7 @@ answer with concept/source/asset citations
 
 Search is for locating candidate pages. It is not the final answer evidence.
 
-The agent should read complete pages after search.
+The agent must read complete pages after search.
 
 ## Asset Contract
 
@@ -55,8 +55,10 @@ Asset pages are first-class searchable knowledge objects. They should include:
 - `mime_type`
 - short description
 - tags
-- optional `# Visible Text`
-- optional `# Visual Notes`
+- `# Visible Text` or a clear note that OCR was unavailable
+- `# Visual Notes` or a clear note that visual inspection was unavailable
 - links to source pages and concept pages
 
 Binary files alone are not enough. If an image exists only in `raw/assets/`, the Agent can open it only when it already knows the path. If the image also has an `assets/asset-*.md` page, the Agent can discover it through keyword search.
+
+If an asset page contains TODO markers, the Agent must treat the asset as a draft and must not cite its generated description as finalized evidence.
