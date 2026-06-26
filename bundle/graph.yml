@@ -1,0 +1,68 @@
+nodes:
+  - id: OKF-Compatible LLM Wiki Bundle
+    type: concept
+    path: concepts/okf-compatible-llm-wiki-bundle.md
+    summary: Portable Markdown bundle combining OKF conventions and LLM Wiki extensions.
+  - id: LLM Wiki
+    type: concept
+    path: concepts/llm-wiki.md
+    summary: Maintained Markdown knowledge layer over raw sources.
+  - id: RAG
+    type: concept
+    path: concepts/rag.md
+    summary: Retrieval layer that locates relevant bundle pages.
+  - id: Company Wiki MCP
+    type: concept
+    path: concepts/company-wiki-mcp.md
+    summary: Read-only MCP tool layer for agents.
+  - id: Company Wiki Reader Skill
+    type: concept
+    path: concepts/company-wiki-reader-skill.md
+    summary: Agent behavior layer for querying the bundle.
+  - id: Image-Aware Knowledge Assets
+    type: concept
+    path: concepts/image-aware-knowledge-assets.md
+    summary: Pattern for searchable visual assets without local OCR dependency.
+  - id: Asset - Wiki RAG Flow Diagram
+    type: asset
+    path: assets/asset-wiki-rag-flow.md
+    asset_path: raw/assets/wiki-rag-flow.svg
+    summary: Architecture diagram for the bundle-to-MCP-to-agent flow.
+  - id: Source - Google Open Knowledge Format
+    type: source
+    path: sources/source-google-okf.md
+    summary: Source summary for OKF conventions.
+  - id: Source - Company Wiki System
+    type: source
+    path: sources/source-company-wiki-system.md
+    summary: Source summary for our existing Skill + MCP + Wiki system.
+
+edges:
+  - from: OKF-Compatible LLM Wiki Bundle
+    to: Source - Google Open Knowledge Format
+    type: adopts_conventions_from
+    evidence: concepts/okf-compatible-llm-wiki-bundle.md
+  - from: OKF-Compatible LLM Wiki Bundle
+    to: LLM Wiki
+    type: extends
+    evidence: concepts/okf-compatible-llm-wiki-bundle.md
+  - from: Company Wiki MCP
+    to: OKF-Compatible LLM Wiki Bundle
+    type: serves
+    evidence: concepts/company-wiki-mcp.md
+  - from: Company Wiki Reader Skill
+    to: Company Wiki MCP
+    type: uses
+    evidence: concepts/company-wiki-reader-skill.md
+  - from: RAG
+    to: OKF-Compatible LLM Wiki Bundle
+    type: locates_pages_in
+    evidence: concepts/rag.md
+  - from: Image-Aware Knowledge Assets
+    to: Asset - Wiki RAG Flow Diagram
+    type: example
+    evidence: concepts/image-aware-knowledge-assets.md
+  - from: Asset - Wiki RAG Flow Diagram
+    to: OKF-Compatible LLM Wiki Bundle
+    type: illustrates
+    evidence: assets/asset-wiki-rag-flow.md

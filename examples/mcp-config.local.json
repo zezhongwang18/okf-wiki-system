@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "okf-company-wiki": {
+      "command": "node",
+      "args": [
+        "/Users/jacksonwong/Documents/New project/google-okf-boundle/mcp-server/src/server.js"
+      ],
+      "env": {
+        "OKF_BUNDLE_ROOT": "/Users/jacksonwong/Documents/New project/google-okf-boundle/bundle"
+      }
+    }
+  }
+}

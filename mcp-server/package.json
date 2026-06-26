@@ -1,0 +1,13 @@
+{
+  "name": "okf-wiki-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "bin": {
+    "okf-wiki-mcp": "src/server.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "inspect": "node src/inspect.js"
+  }
+}
