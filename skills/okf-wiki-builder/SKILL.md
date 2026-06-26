@@ -124,9 +124,9 @@ Figure title or caption
 Image
 ```
 
-During ingest, bind each image to the nearest preceding heading, caption, and previous body paragraphs. Treat following text as context only when it clearly looks like a caption. This avoids binding an image to an unrelated next section.
+During ingest, bind each image to the nearest preceding heading and the body text in that same heading section before the image. Also capture the nearest caption and recent preceding paragraphs. Treat following text as context only when it clearly looks like a caption. This avoids binding an image to an unrelated next section while preserving more than a single preceding paragraph.
 
-The bundled extractor writes `bundle/raw/assets/asset_context.json` for Office sources. The asset page generator reads it and writes a `# Source Context` section into each `assets/asset-*.md` page.
+The bundled extractor writes `bundle/raw/assets/asset_context.json` for Office sources. For DOCX, it records `section_paragraphs_before` for same-heading context and `recent_paragraphs_before` for the local window. The asset page generator reads it and writes a `# Source Context` section into each `assets/asset-*.md` page.
 
 When filling `# Description`, `# Visible Text`, or `# Visual Notes`, use this order of evidence:
 

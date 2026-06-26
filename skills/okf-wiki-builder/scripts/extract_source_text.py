@@ -95,6 +95,23 @@ def likely_caption(text: str) -> bool:
     return bool(re.match(r"^\s*(图|圖|figure|fig\.|表|table)\s*[\d一二三四五六七八九十:：.-]*", text, re.I))
 
 
+def trim_context(paragraphs: list[str], max_items: int = 24, max_chars: int = 4000) -> list[str]:
+    kept: list[str] = []
+    total = 0
+    for paragraph in paragraphs[-max_items:]:
+        text = paragraph.strip()
+        if not text:
+            continue
+        if total + len(text) > max_chars:
+            remaining = max_chars - total
+            if remaining > 80:
+                kept.append(text[:remaining].rstrip() + " ...")
+            break
+        kept.append(text)
+        total += len(text)
+    return kept
+
+
 def copy_office_media(zf: ZipFile, source_path: Path, media_prefix: str, asset_dir: Optional[Path]) -> tuple[list[str], dict[str, str]]:
     media_names = sorted(name for name in zf.namelist() if name.startswith(media_prefix) and not name.endswith("/"))
     if not media_names:
@@ -151,16 +168,19 @@ def docx_asset_contexts(zf: ZipFile, source_path: Path, copied: dict[str, str]) 
     tree = ET.fromstring(zf.read("word/document.xml"))
     paragraphs = []
     current_heading = ""
+    current_heading_index = None
     for index, para in enumerate(tree.findall(".//w:p", NS), 1):
         text = paragraph_text(para)
         style = paragraph_style(para)
         if text and (style.lower().startswith("heading") or re.match(r"^\s*#{1,6}\s+", text)):
             current_heading = text
+            current_heading_index = index
         paragraphs.append({
             "index": index,
             "text": text,
             "style": style,
             "heading": current_heading,
+            "heading_index": current_heading_index,
             "embeds": blip_embeds(para),
         })
 
@@ -171,8 +191,15 @@ def docx_asset_contexts(zf: ZipFile, source_path: Path, copied: dict[str, str]) 
             copied_asset = copied.get(internal or "")
             if not internal or not copied_asset:
                 continue
-            before = [p["text"] for p in paragraphs[max(0, pos - 3):pos] if p["text"]]
-            immediate_before = before[-1] if before else ""
+            recent_before = [p["text"] for p in paragraphs[max(0, pos - 3):pos] if p["text"]]
+            section_before = [
+                p["text"] for p in paragraphs[:pos]
+                if p["text"] and para["heading_index"] and p["index"] >= para["heading_index"]
+            ]
+            if not section_before:
+                section_before = recent_before
+            section_before = trim_context(section_before)
+            immediate_before = recent_before[-1] if recent_before else ""
             after_text = paragraphs[pos + 1]["text"] if pos + 1 < len(paragraphs) else ""
             caption = immediate_before if likely_caption(immediate_before) else ""
             if not caption and likely_caption(para["text"]):
@@ -182,13 +209,16 @@ def docx_asset_contexts(zf: ZipFile, source_path: Path, copied: dict[str, str]) 
                 "source_file": source_path.name,
                 "source_type": "docx",
                 "internal_path": internal,
-                "binding_confidence": "high" if before or caption else "medium",
+                "binding_confidence": "high" if section_before or caption else "medium",
                 "source_location": {
                     "paragraph_index": para["index"],
                     "nearest_heading": para["heading"],
+                    "heading_paragraph_index": para["heading_index"],
                     "caption": caption,
-                    "primary_context_rule": "Image is bound to the nearest preceding heading, caption, and previous paragraphs. Following text is used only when it looks like a caption.",
-                    "paragraphs_before": before,
+                    "primary_context_rule": "Image is bound to the nearest preceding heading and body text in the same heading section before the image. Following text is used only when it looks like a caption.",
+                    "section_paragraphs_before": section_before,
+                    "recent_paragraphs_before": recent_before,
+                    "paragraphs_before": recent_before,
                     "image_paragraph_text": para["text"],
                     "caption_after": after_text if likely_caption(after_text) else "",
                 },

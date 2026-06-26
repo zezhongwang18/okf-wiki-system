@@ -65,7 +65,7 @@ The extractor writes `raw/assets/asset_context.json` for Office-embedded media.
 
 The asset page generator reads that file and adds `# Source Context` to asset pages. This section records the nearest source location, such as:
 
-- DOCX nearest heading, caption, image paragraph, and previous paragraphs
+- DOCX nearest heading, caption, same-heading text before the image, recent previous paragraphs, and image paragraph
 - PPTX slide number, slide title, and slide text
 - XLSX workbook-level extraction note when exact sheet/cell anchoring is unavailable
 
@@ -77,7 +77,7 @@ Figure title or caption
 Image
 ```
 
-The ingest rule prioritizes preceding text and captions. Following text is used only when it clearly looks like a caption, so an unrelated next section is less likely to be bound to the image.
+The ingest rule prioritizes same-heading text before the image plus nearby captions. Following text is used only when it clearly looks like a caption, so an unrelated next section is less likely to be bound to the image.
 
 ## Completion Gate
 

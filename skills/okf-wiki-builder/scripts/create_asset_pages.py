@@ -97,14 +97,25 @@ Context unavailable. Do not infer the image meaning from the whole source alone;
     ]
 
     if source_type == "docx":
+        section_before = location.get("section_paragraphs_before")
+        if not isinstance(section_before, list):
+            section_before = location.get("paragraphs_before", [])
+        recent_before = location.get("recent_paragraphs_before")
+        if not isinstance(recent_before, list):
+            recent_before = location.get("paragraphs_before", [])
         lines.extend([
             f"- Nearest heading: {location.get('nearest_heading') or 'Not captured.'}",
+            f"- Heading paragraph index: {location.get('heading_paragraph_index') or 'Not captured.'}",
             f"- Paragraph index: {location.get('paragraph_index') or 'Not captured.'}",
             f"- Caption: {location.get('caption') or location.get('caption_after') or 'Not captured.'}",
             "",
-            "## Preceding Text",
+            "## Same-Heading Text Before Image",
             "",
-            format_list(location.get("paragraphs_before", [])),
+            format_list(section_before),
+            "",
+            "## Recent Text Before Image",
+            "",
+            format_list(recent_before),
             "",
             "## Image Paragraph Text",
             "",
