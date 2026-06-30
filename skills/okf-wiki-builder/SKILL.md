@@ -70,7 +70,7 @@ sources: []
 13. Regenerate directory-level `index.md` files for progressive disclosure.
 14. Finalize the bundle with `scripts/finalize_bundle.py bundle`. This single required command generates mandatory exports and runs validation.
 15. Confirm that `bundle/exports/upload/` contains Markdown files. If raster images exist, confirm that `bundle/exports/image-catalog.docx` and `bundle/exports/upload/image-catalog.docx` both exist.
-16. Do not run separate export/validation commands as a substitute unless `finalize_bundle.py` is unavailable; if using the fallback, run the image catalog exporter when needed, then the upload exporter, then the validator.
+16. Do not run separate export commands as a substitute. Export scripts are internal finalizer steps and must not be used to claim completion.
 17. Append to `log.md`.
 18. Report completion only after validation passes.
 
@@ -108,6 +108,8 @@ bundle/exports/upload/image-catalog.docx
 
 The generated `bundle/exports/image-catalog.docx` is mandatory. It must embed image bodies directly in Word; a path-only catalog is incomplete.
 
+Finalization also writes `bundle/exports/image-catalog.manifest.json`. The manifest must list every embeddable image resource, its asset page, caption, source file, and applicability notes. A Word catalog without this manifest is incomplete.
+
 ## Upload Export Gate
 
 OKF keeps directory indexes named `index.md`, but upload platforms may flatten paths and reject duplicate filenames.
@@ -130,6 +132,8 @@ concepts/rag.md       -> concepts-rag.md
 
 Upload `bundle/exports/upload/` to platforms that do not preserve folder paths. Do not upload raw OKF directories directly to such platforms.
 
+The upload folder must contain exactly the finalized upload files and, when images exist, `image-catalog.docx`. Stale, extra, or manually copied files in `exports/upload/` are invalid.
+
 ## Completion Gate
 
 Do not say ingest is complete while generated pages still contain `TODO`, `Source Page TODO`, `Concept TODO`, or `Context unavailable`.
@@ -146,9 +150,13 @@ Validation fails when raster image assets exist but `bundle/exports/image-catalo
 
 Validation also fails when an Office source under `raw/sources/` or `raw/private/` contains embedded media but there is no extracted text manifest, no matching `raw/assets/<source-stem>-embedded-*` file, or no `raw/assets/asset_context.json` binding.
 
+Validation also fails when `graph.yml` does not contain `nodes:` and `edges:` or does not reference every non-index source, concept, question, and asset page.
+
 Validation also fails when source, concept, question, or asset pages are missing the required detail-preservation sections below.
 
 Validation also fails when assets are not bound at question level. Source context explains where an image came from; it does not make the image applicable to every question from the same source.
+
+Validation also fails when image asset pages do not state OCR/visible-text review status in `# Visible Text`. Use the company's OCR/image skill when text is present; if no text is visible, explicitly write that no visible text was found after review.
 
 ## Detail Preservation Rules
 
@@ -235,6 +243,7 @@ Rules:
 - `# Applicable Questions` decides when an image can appear in an answer.
 - `# Source Context` must not be used as the reason to automatically show the image.
 - If applicability is unknown, write `Not assigned.`. Such an image can remain in the catalog but must not be auto-attached to answers.
+- Completed bundles must not leave `# Applicable Questions` as `Not assigned.`. Either bind the image to specific durable questions or state a specific reason it is catalog-only and not answer-applicable.
 - When a question page lists an asset in `# Assets Used`, the asset page must list the question title or path in `# Applicable Questions`.
 
 If a section is not applicable, write `Not applicable.` with a brief reason. Do not leave required sections empty. Do not use TODO markers in completed output.

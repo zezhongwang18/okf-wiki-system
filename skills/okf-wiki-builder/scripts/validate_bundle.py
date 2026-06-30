@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from zipfile import ZipFile
@@ -67,6 +68,37 @@ def section_has_content(markdown: str, heading: str) -> bool:
     if re.search(r"\bTODO\b|Source Page TODO|Concept TODO|Context unavailable", body, re.I):
         return False
     return bool(re.search(r"[A-Za-z0-9\u3400-\u9fff]", body))
+
+
+def is_generic_placeholder(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    normalized = re.sub(r"^[-*]\s+", "", normalized)
+    return normalized in {
+        "not applicable",
+        "not applicable.",
+        "none",
+        "none.",
+        "none identified",
+        "none identified.",
+        "无",
+        "无。",
+        "不适用",
+        "不适用。",
+        "未提取",
+        "未提取。",
+    }
+
+
+def has_ocr_review_marker(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    return any(marker in normalized for marker in [
+        "ocr",
+        "visible text reviewed",
+        "no visible text",
+        "无可见文字",
+        "没有可见文字",
+        "公司ocr",
+    ])
 
 
 REQUIRED_DETAIL_SECTIONS = {
@@ -140,6 +172,20 @@ def validate_detail_sections(bundle: Path, page: Path, errors: list[str]) -> Non
             continue
         if not section_has_content(markdown, heading):
             errors.append(f"{page.relative_to(bundle)} has empty/TODO detail section: # {heading}")
+            continue
+        body = section_body(markdown, heading)
+        if kind in {"source", "concept", "question"} and heading not in {"Details Not Fully Extracted", "Caveats", "Assets Used"}:
+            if is_generic_placeholder(body):
+                errors.append(f"{page.relative_to(bundle)} has generic placeholder content in required section: # {heading}")
+        if kind == "asset" and heading in {"Description", "Applicable Questions", "Source Context", "Citations"}:
+            if is_generic_placeholder(body) or is_not_assigned(body):
+                errors.append(f"{page.relative_to(bundle)} has non-specific asset content in required section: # {heading}")
+        if kind == "asset" and heading == "Visible Text":
+            if not has_ocr_review_marker(body):
+                errors.append(
+                    f"{page.relative_to(bundle)} # Visible Text must state OCR/visible-text review status, "
+                    "or explicitly say there is no visible text."
+                )
 
 
 def markdown_links(markdown_block: str) -> list[str]:
@@ -247,6 +293,17 @@ def office_media_entries(source: Path) -> list[str]:
     prefix = OFFICE_MEDIA_PREFIXES.get(source.suffix.lower())
     if not prefix:
         return []
+
+
+def load_asset_context(bundle: Path) -> list[dict]:
+    context_path = bundle / "raw" / "assets" / "asset_context.json"
+    if not context_path.exists():
+        return []
+    try:
+        data = json.loads(context_path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return []
+    return data if isinstance(data, list) else []
     try:
         with ZipFile(source) as archive:
             return sorted(
@@ -268,6 +325,7 @@ def validate_office_media_ingest(bundle: Path, errors: list[str]) -> int:
     raw_assets = bundle / "raw" / "assets"
     context_path = raw_assets / "asset_context.json"
     context_text = context_path.read_text(encoding="utf-8", errors="replace") if context_path.exists() else ""
+    contexts = load_asset_context(bundle)
     checked = 0
 
     for source in office_source_files(bundle):
@@ -296,6 +354,25 @@ def validate_office_media_ingest(bundle: Path, errors: list[str]) -> int:
                 f"{rel_source} contains {len(media_entries)} embedded media file(s), "
                 f"but only {len(copied_assets)} extracted asset file(s) matching raw/assets/{source.stem}-embedded-* were found."
             )
+
+        for idx, internal_path in enumerate(media_entries, 1):
+            expected_name = f"{source.stem}-embedded-{idx:02d}-{Path(internal_path).name}"
+            expected_asset = raw_assets / expected_name
+            if not expected_asset.exists():
+                errors.append(f"{rel_source} embedded media was not extracted to expected asset: raw/assets/{expected_name}")
+            manifest_line = f"`{internal_path}` ->"
+            if extracted_files and manifest_line not in extracted_text:
+                errors.append(f"{rel_source} extracted text manifest does not list embedded media: {internal_path}")
+            matching_context = [
+                item for item in contexts
+                if item.get("copied_asset") == expected_name
+                and item.get("source_file") == source.name
+                and item.get("internal_path") == internal_path
+            ]
+            if context_path.exists() and not matching_context:
+                errors.append(
+                    f"{rel_source} asset_context.json has no exact mapping for {internal_path} -> {expected_name}."
+                )
 
         if not context_path.exists():
             errors.append(f"{rel_source} contains embedded media, but raw/assets/asset_context.json is missing.")
@@ -339,6 +416,23 @@ def upload_source_pages(bundle: Path) -> list[Path]:
     return pages
 
 
+def validate_graph(bundle: Path, pages: list[Path], errors: list[str]) -> None:
+    graph = bundle / "graph.yml"
+    if not graph.exists():
+        errors.append("Missing required path: graph.yml")
+        return
+    text = graph.read_text(encoding="utf-8", errors="replace")
+    if "nodes:" not in text or "edges:" not in text:
+        errors.append("graph.yml must contain nodes: and edges: sections.")
+    for page in pages:
+        rel = page.relative_to(bundle).as_posix()
+        if page.name == "index.md" or rel == "log.md":
+            continue
+        node_id = rel.removesuffix(".md")
+        if rel not in text and node_id not in text:
+            errors.append(f"graph.yml missing node/reference for page: {rel}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate OKF bundle ingest completeness.")
     parser.add_argument("bundle", nargs="?", default=".", help="OKF bundle root")
@@ -351,7 +445,7 @@ def main() -> None:
     errors: list[str] = []
     warnings: list[str] = []
 
-    for required in [bundle / "index.md", bundle / "log.md", asset_pages, raw_assets]:
+    for required in [bundle / "index.md", bundle / "log.md", bundle / "graph.yml", asset_pages, raw_assets]:
         if not required.exists():
             errors.append(f"Missing required path: {display_path(required, bundle)}")
 
@@ -369,9 +463,11 @@ def main() -> None:
                 message = f"Asset page still contains TODO or unavailable context: {page.relative_to(bundle)}"
                 errors.append(message)
 
-    for page in upload_source_pages(bundle):
+    source_pages = upload_source_pages(bundle)
+    for page in source_pages:
         validate_detail_sections(bundle, page, errors)
     validate_question_asset_links(bundle, errors)
+    validate_graph(bundle, source_pages, errors)
     checked_office_sources = validate_office_media_ingest(bundle, errors)
 
     media_files = []
@@ -401,6 +497,7 @@ def main() -> None:
     ]
     if embeddable_images:
         catalog = bundle / "exports" / "image-catalog.docx"
+        catalog_manifest = bundle / "exports" / "image-catalog.manifest.json"
         if not catalog.exists():
             errors.append("Image assets exist but exports/image-catalog.docx is missing.")
         else:
@@ -410,6 +507,22 @@ def main() -> None:
                     "exports/image-catalog.docx does not embed all raster image bodies "
                     f"({embedded_count} embedded media file(s), {len(embeddable_images)} raster image asset(s))."
                 )
+        if not catalog_manifest.exists():
+            errors.append("Image assets exist but exports/image-catalog.manifest.json is missing.")
+        else:
+            try:
+                manifest = json.loads(catalog_manifest.read_text(encoding="utf-8", errors="replace"))
+            except Exception:
+                manifest = []
+                errors.append("exports/image-catalog.manifest.json is not valid JSON.")
+            if not isinstance(manifest, list):
+                errors.append("exports/image-catalog.manifest.json must be a JSON list.")
+                manifest = []
+            manifest_resources = {item.get("resource") for item in manifest if isinstance(item, dict)}
+            for image in embeddable_images:
+                resource = image.relative_to(bundle).as_posix()
+                if resource not in manifest_resources:
+                    errors.append(f"exports/image-catalog.manifest.json missing image resource: {resource}")
 
     upload_sources = upload_source_pages(bundle)
     upload_dir = bundle / "exports" / "upload"
@@ -428,6 +541,13 @@ def main() -> None:
             for name in expected_names:
                 if not (upload_dir / name).exists():
                     errors.append(f"Missing upload-safe export file: exports/upload/{name}")
+            allowed_files = set(expected_names)
+            if embeddable_images:
+                allowed_files.add("image-catalog.docx")
+            exported_files = sorted(path.name for path in upload_dir.iterdir() if path.is_file())
+            for name in exported_files:
+                if name not in allowed_files:
+                    errors.append(f"Unexpected stale or extra file in exports/upload/: {name}")
             if len(set(exported_md)) != len(exported_md):
                 errors.append("exports/upload/ contains duplicate Markdown basenames.")
             if embeddable_images and not (upload_dir / "image-catalog.docx").exists():

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -165,6 +167,7 @@ def build_catalog(bundle: Path, output: Path, max_width_inches: float) -> int:
     doc.add_paragraph("本文件汇总 OKF Wiki 摄入过程中整理出的图片资产。每张图片包含图题、来源、上下文摘要、OCR/可见文字和图片本体。")
 
     added = 0
+    manifest: list[dict] = []
     with tempfile.TemporaryDirectory() as tmp:
         temp_dir = Path(tmp)
         for page in pages:
@@ -213,16 +216,34 @@ def build_catalog(bundle: Path, output: Path, max_width_inches: float) -> int:
             doc.add_paragraph("图片本体：").runs[0].bold = True
             if word_image:
                 doc.add_picture(str(word_image), width=Inches(max_width_inches))
+                manifest.append({
+                    "index": added,
+                    "asset_page": page.relative_to(bundle).as_posix(),
+                    "resource": resource,
+                    "caption": caption,
+                    "source_file": extract_field(source_context, "Source file"),
+                    "applicable_questions": clean_lines(applicable_questions),
+                    "not_applicable_to": clean_lines(not_applicable_to),
+                })
             else:
                 doc.add_paragraph(f"无法嵌入该图片格式：{image_path.name}")
 
     if added == 0:
         raise SystemExit("No embeddable asset images were found.")
     doc.save(output)
+    output.with_suffix(".manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return added
 
 
 def main() -> None:
+    if os.environ.get("OKF_FINALIZE_RUNNING") != "1":
+        raise SystemExit(
+            "Do not run export_image_catalog_docx.py directly as a completion step. "
+            "Run finalize_bundle.py so image catalog export, upload export, and validation happen together."
+        )
     parser = argparse.ArgumentParser(description="Export OKF image assets into a Word catalog with embedded image bodies.")
     parser.add_argument("bundle", nargs="?", default=".", help="OKF bundle root")
     parser.add_argument("--output", help="Output .docx path; defaults to bundle/exports/image-catalog.docx")

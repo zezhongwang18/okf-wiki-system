@@ -54,9 +54,9 @@ Search the bundle first when the user asks about:
 8. Use `get_related_links` and `get_backlinks` to traverse the bundle graph.
 9. Do not attach images from source/concept pages automatically.
 10. Call `find_applicable_assets` with the user question and matched page paths.
-11. Use only assets returned by `find_applicable_assets`. If the user explicitly asks for images and no applicable asset is returned, say the bundle has no question-matched image evidence.
-12. If returned asset metadata has empty TODO fields, or if image OCR/visual understanding is needed to answer, call the company's OCR/image skill on the asset path returned by MCP.
-13. If `read_asset_metadata` returns `completion_status: draft` or `has_todo: true`, treat the asset description as unfinished. Use the original image path and OCR/image skill before citing it as evidence.
+11. Use only ready assets returned by `find_applicable_assets`. If the user explicitly asks for images and no applicable asset is returned, say the bundle has no question-matched image evidence.
+12. `find_applicable_assets` rejects draft assets and weak keyword-only matches. Do not override that by using `search_assets` or `get_page_assets` to attach images.
+13. If image OCR/visual understanding is needed to answer, call the company's OCR/image skill on the asset path returned by MCP before citing visual evidence.
 14. Answer with citations to concept, source, and applicable asset pages.
 
 ## Rules

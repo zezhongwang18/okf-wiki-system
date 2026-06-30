@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 from pathlib import Path
@@ -71,6 +72,11 @@ def copy_image_catalog(bundle: Path, output_dir: Path) -> bool:
 
 
 def main() -> None:
+    if os.environ.get("OKF_FINALIZE_RUNNING") != "1":
+        raise SystemExit(
+            "Do not run export_upload_package.py directly as a completion step. "
+            "Run finalize_bundle.py so upload export, image catalog export, and validation happen together."
+        )
     parser = argparse.ArgumentParser(description="Export OKF bundle pages to upload-safe unique filenames.")
     parser.add_argument("bundle", nargs="?", default=".", help="OKF bundle root")
     parser.add_argument("--output-dir", help="Output directory; defaults to bundle/exports/upload")

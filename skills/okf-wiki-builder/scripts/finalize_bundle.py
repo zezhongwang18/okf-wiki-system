@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import os
 import sys
 from zipfile import ZipFile
 from pathlib import Path
@@ -90,7 +91,8 @@ def preflight_office_media(bundle: Path) -> None:
 
 def run_step(label: str, command: list[str]) -> None:
     print(f"\n== {label} ==", flush=True)
-    result = subprocess.run(command, text=True)
+    env = {**os.environ, "OKF_FINALIZE_RUNNING": "1"}
+    result = subprocess.run(command, text=True, env=env)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

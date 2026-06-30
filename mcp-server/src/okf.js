@@ -245,9 +245,29 @@ function tokenOverlapScore(question, text) {
   return score;
 }
 
+function normalizeMatchText(text) {
+  return String(text || '')
+    .replace(/\[[^\]]+\]\(([^)]+)\)/g, '$1')
+    .replace(/[`*_#>-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function exactApplicableMatch(applicable, question, pagePaths = [], pageTitles = []) {
+  const haystack = normalizeMatchText(applicable);
+  const needles = [
+    question,
+    ...pagePaths,
+    ...pageTitles,
+  ].map(normalizeMatchText).filter((value) => value.length >= 2);
+  return needles.some((needle) => haystack.includes(needle));
+}
+
 function findApplicableAssets(root, question, pagePaths = []) {
   const accepted = new Map();
   const rejected = [];
+  const pageTitles = [];
 
   for (const pagePath of pagePaths) {
     let page;
@@ -256,12 +276,21 @@ function findApplicableAssets(root, question, pagePaths = []) {
     } catch {
       continue;
     }
+    pageTitles.push(page.title);
     const assetsUsed = markdownSectionLinks(page.content, 'Assets Used')
       .map((target) => normalizeReference(page.path, target))
       .filter((target) => target.startsWith('assets/'));
     for (const assetPath of assetsUsed) {
       try {
         const asset = readAssetMetadata(root, assetPath);
+        if (asset.completion_status !== 'ready') {
+          rejected.push({asset_page: assetPath, reason: 'Asset metadata is draft and requires OCR/image review', confidence: 'low'});
+          continue;
+        }
+        if (!exactApplicableMatch(asset.applicable_questions, question, [page.path], [page.title])) {
+          rejected.push({asset_page: assetPath, reason: 'Asset is referenced by the page but lacks reciprocal # Applicable Questions binding', confidence: 'medium'});
+          continue;
+        }
         accepted.set(assetPath, {
           asset_page: assetPath,
           title: asset.title,
@@ -291,22 +320,26 @@ function findApplicableAssets(root, question, pagePaths = []) {
       rejected.push({asset_page: assetPage.path, reason: 'Applicable Questions is not assigned', confidence: 'low'});
       continue;
     }
-    if (tokenOverlapScore(question, notApplicable) >= 2) {
+    if (exactApplicableMatch(notApplicable, question, pagePaths, pageTitles) || tokenOverlapScore(question, notApplicable) >= 2) {
       rejected.push({asset_page: assetPage.path, reason: 'Question overlaps Not Applicable To', confidence: 'medium'});
       continue;
     }
-    const score = tokenOverlapScore(question, applicable);
-    if (score > 0) {
+    if (asset.completion_status !== 'ready') {
+      rejected.push({asset_page: assetPage.path, reason: 'Asset metadata is draft and requires OCR/image review', confidence: 'low'});
+      continue;
+    }
+    const exactMatch = exactApplicableMatch(applicable, question, pagePaths, pageTitles);
+    if (exactMatch) {
       accepted.set(assetPage.path, {
         asset_page: assetPage.path,
         title: asset.title,
-        reason: 'Question overlaps asset # Applicable Questions',
-        confidence: score >= 2 ? 'medium' : 'low',
+        reason: 'Question exactly matches asset # Applicable Questions',
+        confidence: 'high',
         absolute_asset_path: asset.absolute_asset_path,
         completion_status: asset.completion_status,
       });
     } else {
-      rejected.push({asset_page: assetPage.path, reason: 'Applicable Questions does not match question', confidence: 'low'});
+      rejected.push({asset_page: assetPage.path, reason: 'Applicable Questions does not exactly match question or matched page path', confidence: 'low'});
     }
   }
 
