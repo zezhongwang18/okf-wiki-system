@@ -62,16 +62,17 @@ sources: []
 5. Create concept pages under `concepts/`.
 6. Create or refine asset metadata pages under `assets/` for diagrams, screenshots, charts, or media using `# Source Context` first, then OCR/visual notes.
 7. Create durable answers under `questions/` for reusable questions the source can answer.
-8. Create maps under `maps/` for navigation.
-9. Use standard Markdown links for internal bundle references unless a target page does not exist yet.
-10. Add `# Citations` to pages that make sourced claims.
-11. Maintain `graph.yml` for typed relationships, including asset nodes and `illustrates` / `extracted_from` edges.
-12. Regenerate directory-level `index.md` files for progressive disclosure.
-13. If `bundle/raw/assets/` contains image files, generate `bundle/exports/image-catalog.docx` with `scripts/export_image_catalog_docx.py bundle`.
-14. Generate upload-safe files with `scripts/export_upload_package.py bundle`.
-15. Run `scripts/validate_bundle.py bundle`.
-16. Append to `log.md`.
-17. Report completion only after validation passes.
+8. Link images at question level: question pages use `# Assets Used`, and asset pages use `# Applicable Questions`.
+9. Create maps under `maps/` for navigation.
+10. Use standard Markdown links for internal bundle references unless a target page does not exist yet.
+11. Add `# Citations` to pages that make sourced claims.
+12. Maintain `graph.yml` for typed relationships, including asset nodes and question-level asset relationships.
+13. Regenerate directory-level `index.md` files for progressive disclosure.
+14. If `bundle/raw/assets/` contains image files, generate `bundle/exports/image-catalog.docx` with `scripts/export_image_catalog_docx.py bundle`.
+15. Generate upload-safe files with `scripts/export_upload_package.py bundle`.
+16. Run `scripts/validate_bundle.py bundle`.
+17. Append to `log.md`.
+18. Report completion only after validation passes.
 
 ## Mandatory Ingest Gates
 
@@ -142,6 +143,8 @@ Validation fails when raster image assets exist but `bundle/exports/image-catalo
 
 Validation also fails when source, concept, question, or asset pages are missing the required detail-preservation sections below.
 
+Validation also fails when assets are not bound at question level. Source context explains where an image came from; it does not make the image applicable to every question from the same source.
+
 ## Detail Preservation Rules
 
 Do not create summary-only pages. Preserve answerable detail in structured sections so vector search can retrieve more than a short abstract.
@@ -186,22 +189,48 @@ Every `Durable Answer` / question page must include:
 
 ```text
 # Answer
+# Assets Used
 # Evidence
 # Caveats
 # Related
 # Citations
 ```
 
+Use `# Assets Used` to explicitly list image assets needed for this answer:
+
+```md
+# Assets Used
+
+- [MCP configuration screenshot](../assets/asset-mcp-config.md)
+```
+
+If no image is needed, write:
+
+```md
+# Assets Used
+
+None.
+```
+
 Every `Image Asset` page must include:
 
 ```text
 # Description
+# Applicable Questions
+# Not Applicable To
 # Source Context
 # Visible Text
 # Visual Notes
 # Related
 # Citations
 ```
+
+Rules:
+
+- `# Applicable Questions` decides when an image can appear in an answer.
+- `# Source Context` must not be used as the reason to automatically show the image.
+- If applicability is unknown, write `Not assigned.`. Such an image can remain in the catalog but must not be auto-attached to answers.
+- When a question page lists an asset in `# Assets Used`, the asset page must list the question title or path in `# Applicable Questions`.
 
 If a section is not applicable, write `Not applicable.` with a brief reason. Do not leave required sections empty. Do not use TODO markers in completed output.
 

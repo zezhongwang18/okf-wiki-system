@@ -11,6 +11,7 @@ const {
   getBacklinks,
   getPageAssets,
   readAssetMetadata,
+  findApplicableAssets,
   loadGraph,
 } = require('./okf');
 
@@ -64,6 +65,7 @@ function callTool(name, args) {
   if (name === 'get_page_assets') return getPageAssets(root, String(args.path || ''));
   if (name === 'search_assets') return searchAssets(args);
   if (name === 'read_asset_metadata') return readAssetMetadata(root, String(args.asset_id_or_path || args.path || ''));
+  if (name === 'find_applicable_assets') return findApplicableAssets(root, String(args.question || ''), Array.isArray(args.page_paths) ? args.page_paths : []);
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -106,6 +108,7 @@ function toolDefinitions() {
     tool('get_page_assets', 'Return image/media references from a concept page.', {path: {type: 'string'}}, ['path']),
     tool('search_assets', 'Search image/media asset metadata pages.', {query: {type: 'string'}, top_k: {type: 'number'}}, ['query']),
     tool('read_asset_metadata', 'Read an asset metadata page, including original asset path, TODO status, and source-context status. OCR should be handled by the company OCR/image skill.', {asset_id_or_path: {type: 'string'}}, ['asset_id_or_path']),
+    tool('find_applicable_assets', 'Return only question-applicable assets. Uses question page # Assets Used and asset # Applicable Questions; does not attach images merely because they share a source.', {question: {type: 'string'}, page_paths: {type: 'array', items: {type: 'string'}}}, ['question']),
   ];
 }
 

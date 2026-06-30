@@ -85,6 +85,7 @@ REQUIRED_DETAIL_SECTIONS = {
     ],
     "question": [
         "Answer",
+        "Assets Used",
         "Evidence",
         "Caveats",
         "Related",
@@ -92,6 +93,8 @@ REQUIRED_DETAIL_SECTIONS = {
     ],
     "asset": [
         "Description",
+        "Applicable Questions",
+        "Not Applicable To",
         "Source Context",
         "Visible Text",
         "Visual Notes",
@@ -130,6 +133,77 @@ def validate_detail_sections(bundle: Path, page: Path, errors: list[str]) -> Non
             continue
         if not section_has_content(markdown, heading):
             errors.append(f"{page.relative_to(bundle)} has empty/TODO detail section: # {heading}")
+
+
+def markdown_links(markdown_block: str) -> list[str]:
+    return [match.group(1).strip() for match in re.finditer(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", markdown_block)]
+
+
+def normalize_reference(page: Path, reference: str) -> str:
+    if re.match(r"^[a-z]+://", reference, re.I):
+        return reference
+    joined = (page.parent / reference).as_posix()
+    parts: list[str] = []
+    for part in joined.split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def title_or_stem(page: Path, markdown: str) -> str:
+    return frontmatter_value(markdown, "title") or page.stem.replace("-", " ")
+
+
+def is_not_assigned(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    return normalized in {"not assigned.", "not assigned", "none.", "none", "未分配", "未分配。"}
+
+
+def validate_question_asset_links(bundle: Path, errors: list[str]) -> None:
+    pages = upload_source_pages(bundle)
+    asset_pages = {page.relative_to(bundle).as_posix(): page for page in pages if "assets" in page.relative_to(bundle).parts and page.name != "index.md"}
+    question_pages = [page for page in pages if "questions" in page.relative_to(bundle).parts and page.name != "index.md"]
+
+    for asset_rel, asset_page in asset_pages.items():
+        markdown = read_markdown(asset_page)
+        applicable = section_body(markdown, "Applicable Questions")
+        if is_not_assigned(applicable):
+            continue
+        if not section_has_content(markdown, "Applicable Questions"):
+            errors.append(f"{asset_rel} has empty/TODO detail section: # Applicable Questions")
+        if not section_has_content(markdown, "Not Applicable To"):
+            errors.append(f"{asset_rel} has empty/TODO detail section: # Not Applicable To")
+
+    for question_page in question_pages:
+        q_markdown = read_markdown(question_page)
+        q_rel = question_page.relative_to(bundle).as_posix()
+        q_title = title_or_stem(question_page, q_markdown)
+        assets_used = section_body(q_markdown, "Assets Used")
+        if is_not_assigned(assets_used):
+            continue
+        for link in markdown_links(assets_used):
+            normalized = normalize_reference(Path(q_rel), link)
+            if not normalized.startswith("assets/"):
+                continue
+            asset_page = bundle / normalized
+            if not asset_page.exists():
+                errors.append(f"{q_rel} references missing asset in # Assets Used: {normalized}")
+                continue
+            a_markdown = read_markdown(asset_page)
+            applicable = section_body(a_markdown, "Applicable Questions")
+            haystack = applicable.lower()
+            if is_not_assigned(applicable):
+                errors.append(f"{normalized} is used by {q_rel} but # Applicable Questions is Not assigned.")
+                continue
+            if q_rel.lower() not in haystack and q_title.lower() not in haystack:
+                errors.append(
+                    f"{normalized} is used by {q_rel}, but its # Applicable Questions does not mention the question title or path."
+                )
 
 
 def display_path(path: Path, root: Path) -> str:
@@ -212,6 +286,7 @@ def main() -> None:
 
     for page in upload_source_pages(bundle):
         validate_detail_sections(bundle, page, errors)
+    validate_question_asset_links(bundle, errors)
 
     media_files = []
     if raw_assets.exists():

@@ -169,6 +169,14 @@ sources:{sources}
 
 TODO: Describe what this asset shows and why it matters.
 
+# Applicable Questions
+
+Not assigned.
+
+# Not Applicable To
+
+Not assigned.
+
 # File Metadata
 
 - Resource: `{resource}`

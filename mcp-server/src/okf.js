@@ -63,6 +63,27 @@ function headingsFrom(body) {
   return [...body.matchAll(/^(#{1,4})\s+(.+)$/gm)].map((m) => m[2].trim());
 }
 
+function sectionBody(markdown, heading) {
+  const lines = markdown.split(/\r?\n/);
+  const target = String(heading).trim().toLowerCase();
+  const out = [];
+  let inside = false;
+  for (const line of lines) {
+    const h1 = line.match(/^#\s+(.+?)\s*$/);
+    if (h1) {
+      if (inside) break;
+      inside = h1[1].trim().toLowerCase() === target;
+      continue;
+    }
+    if (inside) out.push(line);
+  }
+  return out.join('\n').trim();
+}
+
+function markdownSectionLinks(markdown, heading) {
+  return markdownLinks(sectionBody(markdown, heading)).map((link) => link.target);
+}
+
 function tokenize(text) {
   const latin = text.toLowerCase().match(/[a-z0-9][a-z0-9_-]*/g) || [];
   const cjk = text.match(/[\u3400-\u9fff]/g) || [];
@@ -202,7 +223,97 @@ function readAssetMetadata(root, relPath) {
     absolute_asset_path: absoluteAssetPath,
     has_todo: hasTodo,
     source_context_available: sourceContextAvailable,
+    applicable_questions: sectionBody(concept.content, 'Applicable Questions'),
+    not_applicable_to: sectionBody(concept.content, 'Not Applicable To'),
     completion_status: hasTodo ? 'draft' : 'ready',
+  };
+}
+
+function isNotAssigned(text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return ['not assigned', 'not assigned.', 'none', 'none.', '未分配', '未分配。'].includes(normalized);
+}
+
+function tokenOverlapScore(question, text) {
+  const questionTokens = new Set(tokenize(question).filter((token) => token.length > 1));
+  const textTokens = new Set(tokenize(text).filter((token) => token.length > 1));
+  if (!questionTokens.size || !textTokens.size) return 0;
+  let score = 0;
+  for (const token of questionTokens) {
+    if (textTokens.has(token)) score += 1;
+  }
+  return score;
+}
+
+function findApplicableAssets(root, question, pagePaths = []) {
+  const accepted = new Map();
+  const rejected = [];
+
+  for (const pagePath of pagePaths) {
+    let page;
+    try {
+      page = readConcept(root, pagePath);
+    } catch {
+      continue;
+    }
+    const assetsUsed = markdownSectionLinks(page.content, 'Assets Used')
+      .map((target) => normalizeReference(page.path, target))
+      .filter((target) => target.startsWith('assets/'));
+    for (const assetPath of assetsUsed) {
+      try {
+        const asset = readAssetMetadata(root, assetPath);
+        accepted.set(assetPath, {
+          asset_page: assetPath,
+          title: asset.title,
+          reason: `Referenced by ${page.path} # Assets Used`,
+          confidence: 'high',
+          absolute_asset_path: asset.absolute_asset_path,
+          completion_status: asset.completion_status,
+        });
+      } catch (error) {
+        rejected.push({asset_page: assetPath, reason: `Referenced asset could not be read: ${error.message}`, confidence: 'low'});
+      }
+    }
+  }
+
+  const assetPages = loadConcepts(root).filter((item) => item.path.startsWith('assets/') && !item.path.endsWith('/index.md'));
+  for (const assetPage of assetPages) {
+    if (accepted.has(assetPage.path)) continue;
+    let asset;
+    try {
+      asset = readAssetMetadata(root, assetPage.path);
+    } catch {
+      continue;
+    }
+    const applicable = asset.applicable_questions || '';
+    const notApplicable = asset.not_applicable_to || '';
+    if (!applicable || isNotAssigned(applicable)) {
+      rejected.push({asset_page: assetPage.path, reason: 'Applicable Questions is not assigned', confidence: 'low'});
+      continue;
+    }
+    if (tokenOverlapScore(question, notApplicable) >= 2) {
+      rejected.push({asset_page: assetPage.path, reason: 'Question overlaps Not Applicable To', confidence: 'medium'});
+      continue;
+    }
+    const score = tokenOverlapScore(question, applicable);
+    if (score > 0) {
+      accepted.set(assetPage.path, {
+        asset_page: assetPage.path,
+        title: asset.title,
+        reason: 'Question overlaps asset # Applicable Questions',
+        confidence: score >= 2 ? 'medium' : 'low',
+        absolute_asset_path: asset.absolute_asset_path,
+        completion_status: asset.completion_status,
+      });
+    } else {
+      rejected.push({asset_page: assetPage.path, reason: 'Applicable Questions does not match question', confidence: 'low'});
+    }
+  }
+
+  return {
+    question,
+    assets: [...accepted.values()],
+    rejected_assets: rejected,
   };
 }
 
@@ -278,6 +389,7 @@ module.exports = {
   searchBundle,
   readConcept,
   readAssetMetadata,
+  findApplicableAssets,
   getRelatedLinks,
   getBacklinks,
   getPageAssets,

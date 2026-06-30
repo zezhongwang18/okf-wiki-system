@@ -23,6 +23,7 @@ Expected tools:
 - `search_assets`
 - `get_page_assets`
 - `read_asset_metadata`
+- `find_applicable_assets`
 
 ## Query Triggers
 
@@ -51,10 +52,12 @@ Search the bundle first when the user asks about:
 6. Deduplicate and rank results.
 7. Read complete pages with `read_concept`.
 8. Use `get_related_links` and `get_backlinks` to traverse the bundle graph.
-9. If the question mentions or implies diagrams, screenshots, charts, figures, UI states, visual evidence, or attached images, call `get_page_assets` and `search_assets`.
-10. If returned asset metadata has empty TODO fields, or if image OCR/visual understanding is needed to answer, call the company's OCR/image skill on the asset path returned by MCP.
-11. If `read_asset_metadata` returns `completion_status: draft` or `has_todo: true`, treat the asset description as unfinished. Use the original image path and OCR/image skill before citing it as evidence.
-12. Answer with citations to concept, source, and asset pages.
+9. Do not attach images from source/concept pages automatically.
+10. Call `find_applicable_assets` with the user question and matched page paths.
+11. Use only assets returned by `find_applicable_assets`. If the user explicitly asks for images and no applicable asset is returned, say the bundle has no question-matched image evidence.
+12. If returned asset metadata has empty TODO fields, or if image OCR/visual understanding is needed to answer, call the company's OCR/image skill on the asset path returned by MCP.
+13. If `read_asset_metadata` returns `completion_status: draft` or `has_todo: true`, treat the asset description as unfinished. Use the original image path and OCR/image skill before citing it as evidence.
+14. Answer with citations to concept, source, and applicable asset pages.
 
 ## Rules
 
@@ -66,6 +69,8 @@ Search the bundle first when the user asks about:
 - Cite `# Citations` sources when evidence matters.
 - If evidence is missing, say the bundle does not contain enough evidence.
 - Do not present draft asset metadata as finalized evidence.
+- Do not include images merely because they share a source, heading, concept, or search result with the answer.
+- Include images only when `find_applicable_assets` returns them or when a matched question page explicitly lists them in `# Assets Used`.
 
 ## Answer Format
 

@@ -179,6 +179,8 @@ def build_catalog(bundle: Path, output: Path, max_width_inches: float) -> int:
 
             title = frontmatter_value(markdown, "title") or image_path.stem
             description = section(markdown, "Description")
+            applicable_questions = section(markdown, "Applicable Questions")
+            not_applicable_to = section(markdown, "Not Applicable To")
             source_context = section(markdown, "Source Context")
             visible_text = section(markdown, "Visible Text")
             visual_notes = section(markdown, "Visual Notes")
@@ -201,6 +203,8 @@ def build_catalog(bundle: Path, output: Path, max_width_inches: float) -> int:
             add_label(doc, "检索摘要：", trim_text(summary, 500))
             add_label(doc, "来源文件：", extract_field(source_context, "Source file"))
             add_label(doc, "来源页面：", ", ".join(sources) if sources else "未提取")
+            add_label(doc, "适用问题：", trim_text(" ".join(clean_lines(applicable_questions)), 700) if applicable_questions else "Not assigned.")
+            add_label(doc, "不适用问题：", trim_text(" ".join(clean_lines(not_applicable_to)), 700) if not_applicable_to else "Not assigned.")
             add_label(doc, "绑定标题：", extract_field(source_context, "Nearest heading"))
             add_label(doc, "绑定置信度：", extract_field(source_context, "Binding confidence"))
             add_label(doc, "上下文摘要：", extract_context_summary(source_context))
