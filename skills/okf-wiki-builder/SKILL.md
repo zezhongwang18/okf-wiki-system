@@ -78,6 +78,8 @@ sources: []
 
 For `.docx`, `.pptx`, `.xlsx`, and `.xlsm` sources, do not use `python-docx`, `python-pptx`, `openpyxl`, or ad hoc extraction as the complete ingest path. Those tools may miss embedded pictures.
 
+Never conclude that an Office source has no images from text extraction alone. The finalizer/validator opens the Office zip package and checks `word/media/`, `ppt/media/`, or `xl/media/` directly. If embedded media exists but was not copied to `raw/assets/`, completion must fail.
+
 Before writing source summaries or concept pages for an Office source, run the bundled extractor or an equivalent command that preserves embedded media:
 
 ```bash
@@ -93,7 +95,7 @@ After running the commands, verify:
 4. every image/media file in `bundle/raw/assets/` has a matching `bundle/assets/asset-*.md` page;
 5. image-heavy source summaries link to the relevant asset metadata pages.
 
-If an Office file is known or expected to contain images but no assets are extracted, stop and report the extraction gap instead of silently continuing.
+If an Office file is known or expected to contain images but no assets are extracted, stop and report the extraction gap instead of silently continuing. If the model believes there are no images, it must still run `scripts/finalize_bundle.py bundle`; only a passing finalizer/validator can confirm that no embedded media was missed.
 
 For standalone image files, copy them to `bundle/raw/assets/` first, then run `scripts/create_asset_pages.py` before answering or summarizing. A raw image without an asset metadata page is incomplete ingest.
 
@@ -141,6 +143,8 @@ python skills/okf-wiki-builder/scripts/finalize_bundle.py bundle
 When finalization or validation fails, report the failed checks and continue fixing them. Do not summarize a failed ingest as complete.
 
 Validation fails when raster image assets exist but `bundle/exports/image-catalog.docx` is missing or does not contain embedded `word/media/*` image bodies. Validation also fails when `bundle/exports/upload/` is missing, incomplete, or would contain duplicate Markdown filenames.
+
+Validation also fails when an Office source under `raw/sources/` or `raw/private/` contains embedded media but there is no extracted text manifest, no matching `raw/assets/<source-stem>-embedded-*` file, or no `raw/assets/asset_context.json` binding.
 
 Validation also fails when source, concept, question, or asset pages are missing the required detail-preservation sections below.
 

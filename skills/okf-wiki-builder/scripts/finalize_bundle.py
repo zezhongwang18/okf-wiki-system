@@ -3,8 +3,16 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from zipfile import ZipFile
 from pathlib import Path
 
+
+OFFICE_MEDIA_PREFIXES = {
+    ".docx": "word/media/",
+    ".pptx": "ppt/media/",
+    ".xlsx": "xl/media/",
+    ".xlsm": "xl/media/",
+}
 
 RASTER_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp"}
 
@@ -21,6 +29,63 @@ def has_raster_images(bundle: Path) -> bool:
         path.is_file() and path.suffix.lower() in RASTER_IMAGE_SUFFIXES
         for path in assets_dir.rglob("*")
     )
+
+
+def office_source_files(bundle: Path) -> list[Path]:
+    roots = [bundle / "raw" / "sources", bundle / "raw" / "private"]
+    files: list[Path] = []
+    for root in roots:
+        if root.exists():
+            files.extend(
+                path for path in root.rglob("*")
+                if path.is_file() and path.suffix.lower() in OFFICE_MEDIA_PREFIXES
+            )
+    return sorted(files)
+
+
+def office_media_count(source: Path) -> int:
+    prefix = OFFICE_MEDIA_PREFIXES.get(source.suffix.lower())
+    if not prefix:
+        return 0
+    try:
+        with ZipFile(source) as archive:
+            return len([
+                name for name in archive.namelist()
+                if name.startswith(prefix) and not name.endswith("/")
+            ])
+    except Exception:
+        return 0
+
+
+def preflight_office_media(bundle: Path) -> None:
+    raw_assets = bundle / "raw" / "assets"
+    failures: list[str] = []
+    checked = 0
+    with_media = 0
+
+    for source in office_source_files(bundle):
+        checked += 1
+        media_count = office_media_count(source)
+        if media_count == 0:
+            continue
+        with_media += 1
+        copied_assets = sorted(raw_assets.glob(f"{source.stem}-embedded-*")) if raw_assets.exists() else []
+        if len(copied_assets) < media_count:
+            failures.append(
+                f"- {source.relative_to(bundle)} contains {media_count} embedded media file(s), "
+                f"but only {len(copied_assets)} extracted asset file(s) were found under raw/assets/."
+            )
+
+    if checked:
+        print(f"Office media preflight checked {checked} Office source file(s); {with_media} contain embedded media.", flush=True)
+    if failures:
+        details = "\n".join(failures)
+        raise SystemExit(
+            "Finalization failed before export: Office source files still have embedded media "
+            "that was not extracted. Run extract_source_text.py with --asset-dir raw/assets, "
+            "then run create_asset_pages.py and refine the asset pages.\n"
+            f"{details}"
+        )
 
 
 def run_step(label: str, command: list[str]) -> None:
@@ -46,6 +111,8 @@ def main() -> None:
 
     if not bundle.exists():
         raise SystemExit(f"Bundle path does not exist: {bundle}")
+
+    preflight_office_media(bundle)
 
     if has_raster_images(bundle):
         run_step(

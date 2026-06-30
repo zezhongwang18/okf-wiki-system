@@ -8,6 +8,13 @@ from zipfile import ZipFile
 from pathlib import Path
 
 
+OFFICE_MEDIA_PREFIXES = {
+    ".docx": "word/media/",
+    ".pptx": "ppt/media/",
+    ".xlsx": "xl/media/",
+    ".xlsm": "xl/media/",
+}
+
 MEDIA_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".svg", ".heic",
     ".mp4", ".mov", ".mp3", ".wav", ".m4a", ".pdf",
@@ -224,6 +231,84 @@ def embedded_word_media_count(docx_path: Path) -> int:
         return 0
 
 
+def office_source_files(bundle: Path) -> list[Path]:
+    roots = [bundle / "raw" / "sources", bundle / "raw" / "private"]
+    files: list[Path] = []
+    for root in roots:
+        if root.exists():
+            files.extend(
+                path for path in root.rglob("*")
+                if path.is_file() and path.suffix.lower() in OFFICE_MEDIA_PREFIXES
+            )
+    return sorted(files)
+
+
+def office_media_entries(source: Path) -> list[str]:
+    prefix = OFFICE_MEDIA_PREFIXES.get(source.suffix.lower())
+    if not prefix:
+        return []
+    try:
+        with ZipFile(source) as archive:
+            return sorted(
+                name for name in archive.namelist()
+                if name.startswith(prefix) and not name.endswith("/")
+            )
+    except Exception:
+        return []
+
+
+def extracted_text_candidates(source: Path) -> list[Path]:
+    return [
+        source.with_name(f"{source.stem}.extracted.txt"),
+        source.with_suffix(".txt"),
+    ]
+
+
+def validate_office_media_ingest(bundle: Path, errors: list[str]) -> int:
+    raw_assets = bundle / "raw" / "assets"
+    context_path = raw_assets / "asset_context.json"
+    context_text = context_path.read_text(encoding="utf-8", errors="replace") if context_path.exists() else ""
+    checked = 0
+
+    for source in office_source_files(bundle):
+        checked += 1
+        media_entries = office_media_entries(source)
+        if not media_entries:
+            continue
+
+        rel_source = source.relative_to(bundle)
+        extracted_files = [path for path in extracted_text_candidates(source) if path.exists()]
+        if not extracted_files:
+            errors.append(
+                f"{rel_source} contains {len(media_entries)} embedded media file(s), "
+                "but no extracted text file was found. Run extract_source_text.py with --asset-dir raw/assets."
+            )
+        else:
+            extracted_text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in extracted_files)
+            if "Embedded Media Assets" not in extracted_text:
+                errors.append(
+                    f"{rel_source} contains embedded media, but extracted text does not include the Embedded Media Assets manifest."
+                )
+
+        copied_assets = sorted(raw_assets.glob(f"{source.stem}-embedded-*")) if raw_assets.exists() else []
+        if len(copied_assets) < len(media_entries):
+            errors.append(
+                f"{rel_source} contains {len(media_entries)} embedded media file(s), "
+                f"but only {len(copied_assets)} extracted asset file(s) matching raw/assets/{source.stem}-embedded-* were found."
+            )
+
+        if not context_path.exists():
+            errors.append(f"{rel_source} contains embedded media, but raw/assets/asset_context.json is missing.")
+        else:
+            for asset in copied_assets:
+                if asset.name not in context_text or source.name not in context_text:
+                    errors.append(
+                        f"{rel_source} embedded asset context is incomplete for raw/assets/{asset.name}."
+                    )
+
+    return checked
+
+
 def upload_export_name(bundle: Path, source: Path) -> str:
     rel = source.relative_to(bundle)
     parts = list(rel.parts)
@@ -287,6 +372,7 @@ def main() -> None:
     for page in upload_source_pages(bundle):
         validate_detail_sections(bundle, page, errors)
     validate_question_asset_links(bundle, errors)
+    checked_office_sources = validate_office_media_ingest(bundle, errors)
 
     media_files = []
     if raw_assets.exists():
@@ -355,6 +441,8 @@ def main() -> None:
         raise SystemExit(1)
 
     print(f"OKF bundle validation passed: {bundle}")
+    if checked_office_sources:
+        print(f"Checked embedded media ingest for {checked_office_sources} Office source file(s).")
     print(f"Checked {len(media_files)} raw asset(s) and {len(resources)} asset page(s).")
     if embeddable_images:
         print(f"Checked mandatory image catalog: exports/image-catalog.docx")
