@@ -68,9 +68,9 @@ sources: []
 11. Add `# Citations` to pages that make sourced claims.
 12. Maintain `graph.yml` for typed relationships, including asset nodes and question-level asset relationships.
 13. Regenerate directory-level `index.md` files for progressive disclosure.
-14. If `bundle/raw/assets/` contains image files, generate `bundle/exports/image-catalog.docx` with `scripts/export_image_catalog_docx.py bundle`.
-15. Generate upload-safe files with `scripts/export_upload_package.py bundle`.
-16. Run `scripts/validate_bundle.py bundle`.
+14. Finalize the bundle with `scripts/finalize_bundle.py bundle`. This single required command generates mandatory exports and runs validation.
+15. Confirm that `bundle/exports/upload/` contains Markdown files. If raster images exist, confirm that `bundle/exports/image-catalog.docx` and `bundle/exports/upload/image-catalog.docx` both exist.
+16. Do not run separate export/validation commands as a substitute unless `finalize_bundle.py` is unavailable; if using the fallback, run the image catalog exporter when needed, then the upload exporter, then the validator.
 17. Append to `log.md`.
 18. Report completion only after validation passes.
 
@@ -97,10 +97,11 @@ If an Office file is known or expected to contain images but no assets are extra
 
 For standalone image files, copy them to `bundle/raw/assets/` first, then run `scripts/create_asset_pages.py` before answering or summarizing. A raw image without an asset metadata page is incomplete ingest.
 
-When `bundle/raw/assets/` contains raster images, run:
+When `bundle/raw/assets/` contains raster images, finalization must create:
 
-```bash
-python skills/okf-wiki-builder/scripts/export_image_catalog_docx.py bundle
+```text
+bundle/exports/image-catalog.docx
+bundle/exports/upload/image-catalog.docx
 ```
 
 The generated `bundle/exports/image-catalog.docx` is mandatory. It must embed image bodies directly in Word; a path-only catalog is incomplete.
@@ -109,13 +110,13 @@ The generated `bundle/exports/image-catalog.docx` is mandatory. It must embed im
 
 OKF keeps directory indexes named `index.md`, but upload platforms may flatten paths and reject duplicate filenames.
 
-Before validation, always run:
+Before reporting completion, always run:
 
 ```bash
-python skills/okf-wiki-builder/scripts/export_upload_package.py bundle
+python skills/okf-wiki-builder/scripts/finalize_bundle.py bundle
 ```
 
-This creates `bundle/exports/upload/` with unique filenames:
+This creates `bundle/exports/upload/` with unique filenames and then validates the result:
 
 ```text
 index.md              -> root-index.md
@@ -131,13 +132,13 @@ Upload `bundle/exports/upload/` to platforms that do not preserve folder paths. 
 
 Do not say ingest is complete while generated pages still contain `TODO`, `Source Page TODO`, `Concept TODO`, or `Context unavailable`.
 
-Before reporting completion, run:
+Before reporting completion, run the finalizer:
 
 ```bash
-python skills/okf-wiki-builder/scripts/validate_bundle.py bundle
+python skills/okf-wiki-builder/scripts/finalize_bundle.py bundle
 ```
 
-When validation fails, report the failed checks and continue fixing them. Do not summarize a failed ingest as complete.
+When finalization or validation fails, report the failed checks and continue fixing them. Do not summarize a failed ingest as complete.
 
 Validation fails when raster image assets exist but `bundle/exports/image-catalog.docx` is missing or does not contain embedded `word/media/*` image bodies. Validation also fails when `bundle/exports/upload/` is missing, incomplete, or would contain duplicate Markdown filenames.
 
