@@ -61,7 +61,7 @@ sources: []
 4. Create source summary pages under `sources/`.
 5. Create concept pages under `concepts/`.
 6. Create or refine asset metadata pages under `assets/` for diagrams, screenshots, charts, or media using `# Source Context` first, then OCR/visual notes.
-7. Create durable answers under `questions/` only when requested or clearly reusable.
+7. Create durable answers under `questions/` for reusable questions the source can answer.
 8. Create maps under `maps/` for navigation.
 9. Use standard Markdown links for internal bundle references unless a target page does not exist yet.
 10. Add `# Citations` to pages that make sourced claims.
@@ -89,7 +89,7 @@ After running the commands, verify:
 1. the extracted text file exists;
 2. embedded media listed in the extracted text was copied to `bundle/raw/assets/`;
 3. `bundle/raw/assets/asset_context.json` exists when Office media was extracted;
-4. every image/media file in `bundle/raw/assets/` has a matching `bundle/assets/asset-*.md` page, unless it is explicitly marked as duplicate or non-knowledge-bearing in `log.md`;
+4. every image/media file in `bundle/raw/assets/` has a matching `bundle/assets/asset-*.md` page;
 5. image-heavy source summaries link to the relevant asset metadata pages.
 
 If an Office file is known or expected to contain images but no assets are extracted, stop and report the extraction gap instead of silently continuing.
@@ -128,7 +128,7 @@ Upload `bundle/exports/upload/` to platforms that do not preserve folder paths. 
 
 ## Completion Gate
 
-Do not say ingest is complete while generated asset pages still contain `TODO`, `Source Page TODO`, `Concept TODO`, or `Context unavailable`, unless the user explicitly asks for a draft.
+Do not say ingest is complete while generated pages still contain `TODO`, `Source Page TODO`, `Concept TODO`, or `Context unavailable`.
 
 Before reporting completion, run:
 
@@ -136,15 +136,74 @@ Before reporting completion, run:
 python skills/okf-wiki-builder/scripts/validate_bundle.py bundle
 ```
 
-If the user requested a draft ingest, run:
-
-```bash
-python skills/okf-wiki-builder/scripts/validate_bundle.py bundle --allow-drafts
-```
-
 When validation fails, report the failed checks and continue fixing them. Do not summarize a failed ingest as complete.
 
 Validation fails when raster image assets exist but `bundle/exports/image-catalog.docx` is missing or does not contain embedded `word/media/*` image bodies. Validation also fails when `bundle/exports/upload/` is missing, incomplete, or would contain duplicate Markdown filenames.
+
+Validation also fails when source, concept, question, or asset pages are missing the required detail-preservation sections below.
+
+## Detail Preservation Rules
+
+Do not create summary-only pages. Preserve answerable detail in structured sections so vector search can retrieve more than a short abstract.
+
+Every `Source Summary` page must include:
+
+```text
+# Summary
+# Key Facts
+# Procedures Or Workflows
+# Rules And Exceptions
+# Terms, Fields, Metrics, Or Parameters
+# Evidence Snippets
+# Questions This Source Can Answer
+# Details Not Fully Extracted
+# Citations
+```
+
+Rules:
+
+- `# Key Facts` must preserve concrete facts, dates, names, thresholds, requirements, and decisions.
+- `# Procedures Or Workflows` must preserve ordered steps when the source contains processes.
+- `# Rules And Exceptions` must preserve constraints, exceptions, eligibility rules, and failure cases.
+- `# Terms, Fields, Metrics, Or Parameters` must preserve table fields, sheet names, units, formulas, enums, and configuration values when present.
+- `# Evidence Snippets` must preserve short source-grounded excerpts or close paraphrases for important claims.
+- `# Questions This Source Can Answer` must list reusable user questions this source can answer.
+- `# Details Not Fully Extracted` must explicitly say what still requires raw-source review; write `None identified.` only after checking.
+
+Every `Concept` page must include:
+
+```text
+# Overview
+# Detailed Notes
+# When To Use
+# Rules And Exceptions
+# Examples
+# Related Sources
+# Citations
+```
+
+Every `Durable Answer` / question page must include:
+
+```text
+# Answer
+# Evidence
+# Caveats
+# Related
+# Citations
+```
+
+Every `Image Asset` page must include:
+
+```text
+# Description
+# Source Context
+# Visible Text
+# Visual Notes
+# Related
+# Citations
+```
+
+If a section is not applicable, write `Not applicable.` with a brief reason. Do not leave required sections empty. Do not use TODO markers in completed output.
 
 ## Image Context Binding Rule
 
@@ -179,7 +238,7 @@ Do not require local OCR packages. For images:
 2. Create an asset metadata page in `assets/`.
 3. Include `resource`, `mime_type`, `description`, tags, citations, and related links.
 4. When the image contains visible text or is a diagram/screenshot/chart, call the company agent OCR/image skill if available and add the result under `# Visible Text` or `# Visual Notes`.
-5. If OCR/image inspection is unavailable, state that visual interpretation has not been performed and keep the asset page as a TODO, not as completed analysis.
+5. If OCR/image inspection is unavailable, state that visual interpretation has not been performed and write `OCR unavailable.` or `Visual inspection unavailable.` in the relevant section. Do not use TODO markers in completed output.
 
 For Office sources with embedded images, use:
 

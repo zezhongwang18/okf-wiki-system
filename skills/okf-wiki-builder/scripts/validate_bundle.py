@@ -29,6 +29,109 @@ def has_todo(page: Path) -> bool:
     return bool(re.search(r"\bTODO\b|Source Page TODO|Concept TODO|Context unavailable", text, re.I))
 
 
+def read_markdown(page: Path) -> str:
+    return page.read_text(encoding="utf-8", errors="replace")
+
+
+def frontmatter_value(markdown: str, key: str) -> str:
+    if not markdown.startswith("---\n"):
+        return ""
+    end = markdown.find("\n---\n", 4)
+    if end == -1:
+        return ""
+    match = re.search(rf"^{re.escape(key)}:\s*(.+)$", markdown[4:end], re.MULTILINE)
+    return match.group(1).strip().strip("\"'") if match else ""
+
+
+def markdown_headings(markdown: str) -> set[str]:
+    return {match.group(1).strip().lower() for match in re.finditer(r"^#\s+(.+)$", markdown, re.MULTILINE)}
+
+
+def section_body(markdown: str, heading: str) -> str:
+    pattern = re.compile(rf"^#\s+{re.escape(heading)}\s*$([\s\S]*?)(?=^#\s+|\Z)", re.MULTILINE | re.IGNORECASE)
+    match = pattern.search(markdown)
+    return match.group(1).strip() if match else ""
+
+
+def section_has_content(markdown: str, heading: str) -> bool:
+    body = section_body(markdown, heading)
+    if not body:
+        return False
+    if re.search(r"\bTODO\b|Source Page TODO|Concept TODO|Context unavailable", body, re.I):
+        return False
+    return bool(re.search(r"[A-Za-z0-9\u3400-\u9fff]", body))
+
+
+REQUIRED_DETAIL_SECTIONS = {
+    "source": [
+        "Summary",
+        "Key Facts",
+        "Procedures Or Workflows",
+        "Rules And Exceptions",
+        "Terms, Fields, Metrics, Or Parameters",
+        "Evidence Snippets",
+        "Questions This Source Can Answer",
+        "Details Not Fully Extracted",
+        "Citations",
+    ],
+    "concept": [
+        "Overview",
+        "Detailed Notes",
+        "When To Use",
+        "Rules And Exceptions",
+        "Examples",
+        "Related Sources",
+        "Citations",
+    ],
+    "question": [
+        "Answer",
+        "Evidence",
+        "Caveats",
+        "Related",
+        "Citations",
+    ],
+    "asset": [
+        "Description",
+        "Source Context",
+        "Visible Text",
+        "Visual Notes",
+        "Related",
+        "Citations",
+    ],
+}
+
+
+def page_kind(page: Path, markdown: str) -> str | None:
+    rel_parts = page.parts
+    doc_type = frontmatter_value(markdown, "type").lower()
+    if "sources" in rel_parts or "source" in doc_type:
+        return "source"
+    if "concepts" in rel_parts or doc_type == "concept":
+        return "concept"
+    if "questions" in rel_parts or "durable" in doc_type or "question" in doc_type:
+        return "question"
+    if "assets" in rel_parts or "asset" in doc_type:
+        return "asset"
+    return None
+
+
+def validate_detail_sections(bundle: Path, page: Path, errors: list[str]) -> None:
+    if page.name == "index.md":
+        return
+    markdown = read_markdown(page)
+    kind = page_kind(page.relative_to(bundle), markdown)
+    if not kind:
+        return
+    required = REQUIRED_DETAIL_SECTIONS[kind]
+    headings = markdown_headings(markdown)
+    for heading in required:
+        if heading.lower() not in headings:
+            errors.append(f"{page.relative_to(bundle)} missing required detail section: # {heading}")
+            continue
+        if not section_has_content(markdown, heading):
+            errors.append(f"{page.relative_to(bundle)} has empty/TODO detail section: # {heading}")
+
+
 def display_path(path: Path, root: Path) -> str:
     try:
         return str(path.relative_to(root))
@@ -80,7 +183,7 @@ def upload_source_pages(bundle: Path) -> list[Path]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate OKF bundle ingest completeness.")
     parser.add_argument("bundle", nargs="?", default=".", help="OKF bundle root")
-    parser.add_argument("--allow-drafts", action="store_true", help="Allow TODO markers in asset pages")
+    parser.add_argument("--allow-drafts", action="store_true", help="Deprecated compatibility flag; validation still fails on TODO markers")
     args = parser.parse_args()
 
     bundle = Path(args.bundle).resolve()
@@ -105,10 +208,10 @@ def main() -> None:
             resources[resource] = page
             if has_todo(page):
                 message = f"Asset page still contains TODO or unavailable context: {page.relative_to(bundle)}"
-                if args.allow_drafts:
-                    warnings.append(message)
-                else:
-                    errors.append(message)
+                errors.append(message)
+
+    for page in upload_source_pages(bundle):
+        validate_detail_sections(bundle, page, errors)
 
     media_files = []
     if raw_assets.exists():
