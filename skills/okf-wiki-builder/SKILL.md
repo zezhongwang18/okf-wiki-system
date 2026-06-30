@@ -67,9 +67,11 @@ sources: []
 10. Add `# Citations` to pages that make sourced claims.
 11. Maintain `graph.yml` for typed relationships, including asset nodes and `illustrates` / `extracted_from` edges.
 12. Regenerate directory-level `index.md` files for progressive disclosure.
-13. Run `scripts/validate_bundle.py bundle`.
-14. Append to `log.md`.
-15. Report completion only after validation passes.
+13. If `bundle/raw/assets/` contains image files, generate `bundle/exports/image-catalog.docx` with `scripts/export_image_catalog_docx.py bundle`.
+14. Generate upload-safe files with `scripts/export_upload_package.py bundle`.
+15. Run `scripts/validate_bundle.py bundle`.
+16. Append to `log.md`.
+17. Report completion only after validation passes.
 
 ## Mandatory Ingest Gates
 
@@ -94,6 +96,36 @@ If an Office file is known or expected to contain images but no assets are extra
 
 For standalone image files, copy them to `bundle/raw/assets/` first, then run `scripts/create_asset_pages.py` before answering or summarizing. A raw image without an asset metadata page is incomplete ingest.
 
+When `bundle/raw/assets/` contains raster images, run:
+
+```bash
+python skills/okf-wiki-builder/scripts/export_image_catalog_docx.py bundle
+```
+
+The generated `bundle/exports/image-catalog.docx` is mandatory. It must embed image bodies directly in Word; a path-only catalog is incomplete.
+
+## Upload Export Gate
+
+OKF keeps directory indexes named `index.md`, but upload platforms may flatten paths and reject duplicate filenames.
+
+Before validation, always run:
+
+```bash
+python skills/okf-wiki-builder/scripts/export_upload_package.py bundle
+```
+
+This creates `bundle/exports/upload/` with unique filenames:
+
+```text
+index.md              -> root-index.md
+concepts/index.md     -> concepts-index.md
+sources/index.md      -> sources-index.md
+assets/index.md       -> assets-index.md
+concepts/rag.md       -> concepts-rag.md
+```
+
+Upload `bundle/exports/upload/` to platforms that do not preserve folder paths. Do not upload raw OKF directories directly to such platforms.
+
 ## Completion Gate
 
 Do not say ingest is complete while generated asset pages still contain `TODO`, `Source Page TODO`, `Concept TODO`, or `Context unavailable`, unless the user explicitly asks for a draft.
@@ -111,6 +143,8 @@ python skills/okf-wiki-builder/scripts/validate_bundle.py bundle --allow-drafts
 ```
 
 When validation fails, report the failed checks and continue fixing them. Do not summarize a failed ingest as complete.
+
+Validation fails when raster image assets exist but `bundle/exports/image-catalog.docx` is missing or does not contain embedded `word/media/*` image bodies. Validation also fails when `bundle/exports/upload/` is missing, incomplete, or would contain duplicate Markdown filenames.
 
 ## Image Context Binding Rule
 
@@ -171,4 +205,6 @@ An image file in `raw/assets/` without a matching `assets/asset-*.md` page is in
 
 - `scripts/extract_source_text.py`: extract searchable text, preserve embedded Office media when `--asset-dir` is supplied, and write `raw/assets/asset_context.json`.
 - `scripts/create_asset_pages.py`: scan `raw/assets/` and create OKF-compatible `assets/asset-*.md` metadata page drafts with `# Source Context` when available.
+- `scripts/export_image_catalog_docx.py`: create mandatory `exports/image-catalog.docx` with image titles, context, OCR text, and embedded image bodies for platforms that only accept Word files.
+- `scripts/export_upload_package.py`: create mandatory `exports/upload/` with upload-safe unique filenames so `index.md` files do not collide on platforms that flatten paths.
 - `scripts/validate_bundle.py`: fail the ingest if raw assets lack asset pages, embedded media lacks source context, or asset pages still contain TODO markers.
