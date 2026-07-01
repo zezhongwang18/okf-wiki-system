@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -240,10 +242,14 @@ def build_catalog(bundle: Path, output: Path, max_width_inches: float) -> int:
 
 def main() -> None:
     if os.environ.get("OKF_FINALIZE_RUNNING") != "1":
-        raise SystemExit(
-            "Do not run export_image_catalog_docx.py directly as a completion step. "
-            "Run finalize_bundle.py so image catalog export, upload export, and validation happen together."
+        bundle_arg = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "."
+        finalizer = Path(__file__).resolve().with_name("finalize_bundle.py")
+        print(
+            "export_image_catalog_docx.py was called directly; delegating to finalize_bundle.py "
+            "so image catalog export, upload export, and validation happen together.",
+            flush=True,
         )
+        raise SystemExit(subprocess.run([sys.executable, str(finalizer), bundle_arg]).returncode)
     parser = argparse.ArgumentParser(description="Export OKF image assets into a Word catalog with embedded image bodies.")
     parser.add_argument("bundle", nargs="?", default=".", help="OKF bundle root")
     parser.add_argument("--output", help="Output .docx path; defaults to bundle/exports/image-catalog.docx")

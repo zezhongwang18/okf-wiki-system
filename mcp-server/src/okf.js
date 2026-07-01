@@ -1,6 +1,29 @@
 const fs = require('fs');
 const path = require('path');
 
+const ASSET_FILE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.svg',
+  '.mp4', '.mov', '.mp3', '.wav', '.m4a', '.pdf',
+]);
+
+const MIME_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.pdf': 'application/pdf',
+};
+
 function resolveBundleRoot() {
   const root = process.env.OKF_BUNDLE_ROOT || path.resolve(__dirname, '../../bundle');
   if (!fs.existsSync(path.join(root, 'index.md'))) {
@@ -229,6 +252,71 @@ function readAssetMetadata(root, relPath) {
   };
 }
 
+function resolveAssetReference(root, assetIdOrPath) {
+  const value = String(assetIdOrPath || '').trim();
+  if (!value) throw new Error('asset_id_or_path is required');
+  if (/^assets\/.+\.md$/i.test(value)) {
+    const metadata = readAssetMetadata(root, value);
+    if (!metadata.resource) throw new Error(`Asset metadata has no resource: ${value}`);
+    return {
+      asset_page: value,
+      resource: metadata.resource,
+      title: metadata.title,
+      completion_status: metadata.completion_status,
+      absolute_asset_path: metadata.absolute_asset_path,
+    };
+  }
+  if (!value.startsWith('raw/assets/')) {
+    throw new Error(`Asset file references must be under raw/assets/ or an asset metadata page: ${value}`);
+  }
+  return {
+    asset_page: '',
+    resource: value,
+    title: path.basename(value),
+    completion_status: 'unknown',
+    absolute_asset_path: safeResolve(root, value),
+  };
+}
+
+function readAssetFile(root, assetIdOrPath, options = {}) {
+  const resolved = resolveAssetReference(root, assetIdOrPath);
+  const full = safeResolve(root, resolved.resource);
+  const rel = path.relative(root, full).replaceAll(path.sep, '/');
+  if (!rel.startsWith('raw/assets/')) {
+    throw new Error(`Resolved asset is outside raw/assets/: ${rel}`);
+  }
+  if (!fs.existsSync(full)) throw new Error(`Asset file not found: ${resolved.resource}`);
+  const stat = fs.statSync(full);
+  if (!stat.isFile()) throw new Error(`Asset reference is not a file: ${resolved.resource}`);
+  const ext = path.extname(full).toLowerCase();
+  if (!ASSET_FILE_EXTENSIONS.has(ext)) {
+    throw new Error(`Unsupported asset file type: ${ext || '(none)'}`);
+  }
+  const maxBytes = Number(options.max_bytes || 10 * 1024 * 1024);
+  const includeData = options.include_data !== false;
+  const result = {
+    asset_page: resolved.asset_page,
+    title: resolved.title,
+    resource: rel,
+    absolute_asset_path: full,
+    mime_type: MIME_TYPES[ext] || 'application/octet-stream',
+    size_bytes: stat.size,
+    completion_status: resolved.completion_status,
+    data_base64: null,
+    truncated: false,
+  };
+  if (includeData) {
+    if (stat.size > maxBytes) {
+      result.truncated = true;
+      result.data_base64 = null;
+      result.note = `Asset is larger than max_bytes (${stat.size} > ${maxBytes}); use absolute_asset_path for display.`;
+    } else {
+      result.data_base64 = fs.readFileSync(full).toString('base64');
+    }
+  }
+  return result;
+}
+
 function isNotAssigned(text) {
   const normalized = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
   return ['not assigned', 'not assigned.', 'none', 'none.', '未分配', '未分配。'].includes(normalized);
@@ -422,6 +510,7 @@ module.exports = {
   searchBundle,
   readConcept,
   readAssetMetadata,
+  readAssetFile,
   findApplicableAssets,
   getRelatedLinks,
   getBacklinks,

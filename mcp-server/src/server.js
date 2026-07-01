@@ -11,6 +11,7 @@ const {
   getBacklinks,
   getPageAssets,
   readAssetMetadata,
+  readAssetFile,
   findApplicableAssets,
   loadGraph,
 } = require('./okf');
@@ -65,6 +66,10 @@ function callTool(name, args) {
   if (name === 'get_page_assets') return getPageAssets(root, String(args.path || ''));
   if (name === 'search_assets') return searchAssets(args);
   if (name === 'read_asset_metadata') return readAssetMetadata(root, String(args.asset_id_or_path || args.path || ''));
+  if (name === 'get_asset_file') return readAssetFile(root, String(args.asset_id_or_path || args.path || ''), {
+    include_data: args.include_data !== false,
+    max_bytes: Number(args.max_bytes || 10 * 1024 * 1024),
+  });
   if (name === 'find_applicable_assets') return findApplicableAssets(root, String(args.question || ''), Array.isArray(args.page_paths) ? args.page_paths : []);
   throw new Error(`Unknown tool: ${name}`);
 }
@@ -108,6 +113,7 @@ function toolDefinitions() {
     tool('get_page_assets', 'Return image/media references from a concept page.', {path: {type: 'string'}}, ['path']),
     tool('search_assets', 'Search image/media asset metadata pages.', {query: {type: 'string'}, top_k: {type: 'number'}}, ['query']),
     tool('read_asset_metadata', 'Read an asset metadata page, including original asset path, TODO status, and source-context status. OCR should be handled by the company OCR/image skill.', {asset_id_or_path: {type: 'string'}}, ['asset_id_or_path']),
+    tool('get_asset_file', 'Read a permitted raw asset file for display. Accepts raw/assets/... or an assets/*.md metadata page and returns mime type, size, absolute path, and optional base64 data.', {asset_id_or_path: {type: 'string'}, include_data: {type: 'boolean'}, max_bytes: {type: 'number'}}, ['asset_id_or_path']),
     tool('find_applicable_assets', 'Return only question-applicable assets. Uses question page # Assets Used and asset # Applicable Questions; does not attach images merely because they share a source.', {question: {type: 'string'}, page_paths: {type: 'array', items: {type: 'string'}}}, ['question']),
   ];
 }

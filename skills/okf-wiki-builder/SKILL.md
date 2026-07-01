@@ -69,7 +69,7 @@ sources: []
 12. Maintain `graph.yml` for typed relationships, including asset nodes and question-level asset relationships.
 13. Regenerate directory-level `index.md` files for progressive disclosure.
 14. Finalize the bundle with `scripts/finalize_bundle.py bundle`. This single required command generates mandatory exports and runs validation.
-15. Confirm that `bundle/exports/upload/` contains Markdown files. If raster images exist, confirm that `bundle/exports/image-catalog.docx` and `bundle/exports/upload/image-catalog.docx` both exist.
+15. Confirm that `bundle/exports/upload/` and `bundle/exports/rag-upload/` both contain Markdown files. If raster images exist, confirm that `bundle/exports/image-catalog.docx` and `bundle/exports/upload/image-catalog.docx` both exist.
 16. Do not run separate export commands as a substitute. Export scripts are internal finalizer steps and must not be used to claim completion.
 17. Append to `log.md`.
 18. Report completion only after validation passes.
@@ -134,6 +134,29 @@ Upload `bundle/exports/upload/` to platforms that do not preserve folder paths. 
 
 The upload folder must contain exactly the finalized upload files and, when images exist, `image-catalog.docx`. Stale, extra, or manually copied files in `exports/upload/` are invalid.
 
+For company RAG platforms, prefer `bundle/exports/rag-upload/` over `bundle/exports/upload/`. This RAG-safe package rewrites question pages with explicit `IMAGE_POLICY` blocks at the top:
+
+```text
+QUESTION_ID:
+questions/example.md
+
+QUESTION_TITLE:
+Example question
+
+IMAGE_POLICY:
+HAS_IMAGE: false
+ALLOWED_ASSETS:
+none
+IMAGE_USE_RULE:
+Do not attach any image to this answer.
+```
+
+For questions with images, `HAS_IMAGE: true` and `ALLOWED_ASSETS` must list the exact asset page and raw asset path. For questions without images, `HAS_IMAGE: false` and `ALLOWED_ASSETS: none` are mandatory.
+
+`exports/rag-upload/` must not contain `image-catalog.docx`. The Word image catalog is for human/platform image material handling, not ordinary answer retrieval, because it can cause image bleed across adjacent chunks.
+
+`exports/rag-upload/` does not contain image bodies. It contains `ALLOWED_ASSETS` references such as `raw/assets/example.png`; the answering agent must call the OKF MCP `get_asset_file` tool to retrieve the displayable image file when a matched question allows an image.
+
 ## Completion Gate
 
 Do not say ingest is complete while generated pages still contain `TODO`, `Source Page TODO`, `Concept TODO`, or `Context unavailable`.
@@ -147,6 +170,8 @@ python skills/okf-wiki-builder/scripts/finalize_bundle.py bundle
 When finalization or validation fails, report the failed checks and continue fixing them. Do not summarize a failed ingest as complete.
 
 Validation fails when raster image assets exist but `bundle/exports/image-catalog.docx` is missing or does not contain embedded `word/media/*` image bodies. Validation also fails when `bundle/exports/upload/` is missing, incomplete, or would contain duplicate Markdown filenames.
+
+Validation also fails when `bundle/exports/rag-upload/` is missing, empty, contains stale files, contains Word files, or any question file lacks `IMAGE_POLICY`, `HAS_IMAGE`, `ALLOWED_ASSETS`, `IMAGE_USE_RULE`, and `END_OF_QUESTION` markers.
 
 Validation also fails when an Office source under `raw/sources/` or `raw/private/` contains embedded media but there is no extracted text manifest, no matching `raw/assets/<source-stem>-embedded-*` file, or no `raw/assets/asset_context.json` binding.
 

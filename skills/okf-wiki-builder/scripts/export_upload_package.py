@@ -5,6 +5,8 @@ import argparse
 import os
 import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -73,10 +75,14 @@ def copy_image_catalog(bundle: Path, output_dir: Path) -> bool:
 
 def main() -> None:
     if os.environ.get("OKF_FINALIZE_RUNNING") != "1":
-        raise SystemExit(
-            "Do not run export_upload_package.py directly as a completion step. "
-            "Run finalize_bundle.py so upload export, image catalog export, and validation happen together."
+        bundle_arg = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "."
+        finalizer = Path(__file__).resolve().with_name("finalize_bundle.py")
+        print(
+            "export_upload_package.py was called directly; delegating to finalize_bundle.py "
+            "so upload export, image catalog export, and validation happen together.",
+            flush=True,
         )
+        raise SystemExit(subprocess.run([sys.executable, str(finalizer), bundle_arg]).returncode)
     parser = argparse.ArgumentParser(description="Export OKF bundle pages to upload-safe unique filenames.")
     parser.add_argument("bundle", nargs="?", default=".", help="OKF bundle root")
     parser.add_argument("--output-dir", help="Output directory; defaults to bundle/exports/upload")

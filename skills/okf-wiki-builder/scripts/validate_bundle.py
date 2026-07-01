@@ -293,6 +293,14 @@ def office_media_entries(source: Path) -> list[str]:
     prefix = OFFICE_MEDIA_PREFIXES.get(source.suffix.lower())
     if not prefix:
         return []
+    try:
+        with ZipFile(source) as archive:
+            return sorted(
+                name for name in archive.namelist()
+                if name.startswith(prefix) and not name.endswith("/")
+            )
+    except Exception:
+        return []
 
 
 def load_asset_context(bundle: Path) -> list[dict]:
@@ -304,14 +312,6 @@ def load_asset_context(bundle: Path) -> list[dict]:
     except Exception:
         return []
     return data if isinstance(data, list) else []
-    try:
-        with ZipFile(source) as archive:
-            return sorted(
-                name for name in archive.namelist()
-                if name.startswith(prefix) and not name.endswith("/")
-            )
-    except Exception:
-        return []
 
 
 def extracted_text_candidates(source: Path) -> list[Path]:
@@ -404,6 +404,18 @@ def upload_export_name(bundle: Path, source: Path) -> str:
     return f"{stem}.md"
 
 
+def rag_export_name(source: Path) -> str:
+    stem = source.stem
+    if source.name == "index.md":
+        stem = f"{source.parent.name}-index"
+    def slug(value: str) -> str:
+        value = value.lower()
+        value = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", value)
+        value = re.sub(r"-{2,}", "-", value).strip("-")
+        return value or "page"
+    return f"{slug(stem)}.md"
+
+
 def upload_source_pages(bundle: Path) -> list[Path]:
     pages: list[Path] = []
     for path in sorted(bundle.rglob("*.md")):
@@ -414,6 +426,61 @@ def upload_source_pages(bundle: Path) -> list[Path]:
             continue
         pages.append(path)
     return pages
+
+
+def rag_kind_dir(page: Path, markdown: str) -> str:
+    kind = page_kind(page, markdown) or "other"
+    return f"{kind}s"
+
+
+def validate_rag_upload(bundle: Path, pages: list[Path], errors: list[str]) -> None:
+    rag_dir = bundle / "exports" / "rag-upload"
+    if not rag_dir.exists():
+        errors.append("Mandatory RAG-safe upload package is missing: exports/rag-upload/")
+        return
+    if list(rag_dir.rglob("*.docx")):
+        errors.append("exports/rag-upload/ must not contain Word files such as image-catalog.docx.")
+    expected: set[str] = set()
+    question_count = 0
+    for page in pages:
+        rel = page.relative_to(bundle).as_posix()
+        if page.name == "index.md" or rel == "log.md":
+            continue
+        markdown = read_markdown(page)
+        kind_dir = rag_kind_dir(page.relative_to(bundle), markdown)
+        exported_rel = f"{kind_dir}/{rag_export_name(page)}"
+        expected.add(exported_rel)
+        exported = rag_dir / exported_rel
+        if not exported.exists():
+            errors.append(f"Missing RAG-safe upload file: exports/rag-upload/{exported_rel}")
+            continue
+        text = exported.read_text(encoding="utf-8", errors="replace")
+        if kind_dir == "questions":
+            question_count += 1
+            for marker in ["QUESTION_ID:", "QUESTION_TITLE:", "IMAGE_POLICY:", "HAS_IMAGE:", "ALLOWED_ASSETS:", "IMAGE_USE_RULE:", "END_OF_QUESTION:"]:
+                if marker not in text:
+                    errors.append(f"exports/rag-upload/{exported_rel} missing required marker: {marker}")
+            assets_used = section_body(markdown, "Assets Used")
+            has_assets = not is_not_assigned(assets_used)
+            expected_flag = "HAS_IMAGE: true" if has_assets else "HAS_IMAGE: false"
+            if expected_flag not in text:
+                errors.append(f"exports/rag-upload/{exported_rel} must contain {expected_flag}")
+            if not has_assets and "ALLOWED_ASSETS:\nnone" not in text:
+                errors.append(f"exports/rag-upload/{exported_rel} no-image question must contain ALLOWED_ASSETS: none")
+        if kind_dir == "assets":
+            for marker in ["RETRIEVAL_GUARD:", "ASSET_ID:", "APPLICABLE_QUESTIONS:", "NOT_APPLICABLE_TO:"]:
+                if marker not in text:
+                    errors.append(f"exports/rag-upload/{exported_rel} missing required asset guard marker: {marker}")
+
+    if question_count == 0:
+        errors.append("exports/rag-upload/ must contain at least one question file.")
+    exported_files = {
+        path.relative_to(rag_dir).as_posix()
+        for path in rag_dir.rglob("*.md")
+        if path.is_file()
+    }
+    for name in sorted(exported_files - expected):
+        errors.append(f"Unexpected stale or extra file in exports/rag-upload/: {name}")
 
 
 def validate_graph(bundle: Path, pages: list[Path], errors: list[str]) -> None:
@@ -468,6 +535,7 @@ def main() -> None:
         validate_detail_sections(bundle, page, errors)
     validate_question_asset_links(bundle, errors)
     validate_graph(bundle, source_pages, errors)
+    validate_rag_upload(bundle, source_pages, errors)
     checked_office_sources = validate_office_media_ingest(bundle, errors)
 
     media_files = []
@@ -568,6 +636,8 @@ def main() -> None:
         print(f"Checked mandatory image catalog: exports/image-catalog.docx")
     if upload_sources:
         print(f"Checked mandatory upload export: exports/upload/")
+    if (bundle / "exports" / "rag-upload").exists():
+        print(f"Checked mandatory RAG-safe upload export: exports/rag-upload/")
 
 
 if __name__ == "__main__":

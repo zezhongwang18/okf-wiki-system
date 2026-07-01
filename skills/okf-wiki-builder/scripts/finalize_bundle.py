@@ -105,6 +105,13 @@ def ensure_upload_not_empty(bundle: Path) -> None:
             "Finalization failed: exports/upload/ contains no Markdown files. "
             "Create the OKF pages first, then rerun finalize_bundle.py."
         )
+    rag_upload_dir = bundle / "exports" / "rag-upload"
+    rag_files = sorted(rag_upload_dir.rglob("*.md")) if rag_upload_dir.exists() else []
+    if not rag_files:
+        raise SystemExit(
+            "Finalization failed: exports/rag-upload/ contains no Markdown files. "
+            "Create the OKF pages first, then rerun finalize_bundle.py."
+        )
 
 
 def main() -> None:
@@ -128,6 +135,10 @@ def main() -> None:
         "Export upload-safe package",
         [sys.executable, str(scripts / "export_upload_package.py"), str(bundle)],
     )
+    run_step(
+        "Export RAG-safe package",
+        [sys.executable, str(scripts / "export_rag_upload_package.py"), str(bundle)],
+    )
     ensure_upload_not_empty(bundle)
 
     run_step(
@@ -137,6 +148,7 @@ def main() -> None:
 
     print("\nOKF bundle finalization passed.")
     print(f"Upload package: {bundle / 'exports' / 'upload'}")
+    print(f"RAG upload package: {bundle / 'exports' / 'rag-upload'}")
     if has_raster_images(bundle):
         print(f"Image catalog: {bundle / 'exports' / 'image-catalog.docx'}")
 
